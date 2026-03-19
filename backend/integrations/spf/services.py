@@ -1,6 +1,22 @@
-"""Service layer for querying the external spf_production database."""
 from sqlalchemy.orm import Session
-from .models import SpfPedido, SpfItem, SpfItemMedida, SpfItemComplemento
+from sqlalchemy import func, or_, union_all
+from .models import (
+    SpfPedido, SpfItem, SpfItemMedida, SpfItemComplemento,
+    SpfCliente, SpfVComplemento, SpfComprobanteTemp,
+    SpfTangoHeader, SpfTangoHeaderHistorico,
+    SpfTangoBody, SpfTangoBodyHistorico,
+    SpfLineaTangoFacturada, SpfLineaTangoRemitida
+)
+
+# Status mapping for SpfPedido.estado_id
+ESTADOS_PEDIDO = {
+    1: "Borrador",
+    2: "Activo",
+    3: "Finalizado",
+    4: "Anulado",
+    5: "Pausado",
+    6: "Preactivo"
+}
 
 
 def search_presupuestos(db: Session, query: str):
@@ -64,16 +80,16 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
             per = float(medida.perimtero or 0)
             tot = float(medida.total_item or 0)
             
-            item_total_m2 += sup * qty
-            item_total_ml += per * qty
+            item_total_m2 += sup
+            item_total_ml += per
             item_total_pesos += tot
             
             panos_out.append({
                 "cantidad": qty,
                 "ancho": float(medida.ancho or 0),
                 "alto": float(medida.alto or 0),
-                "superficie_m2": sup,
-                "perimetro_ml": per,
+                "superficie_m2": sup / qty if qty > 0 else 0,
+                "perimetro_ml": per / qty if qty > 0 else 0,
                 "precio_total": tot,
                 "precio_unitario": tot / qty if qty > 0 else 0.0
             })
@@ -109,3 +125,150 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
         "items_count": len(items_out),
         "items": items_out
     }
+
+
+def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
+    """
+    Detailed commercial and documentary advancement for an acopio.
+    Fetches orders, items, pricing, billing/dispatch progress and receipts.
+    """
+    # 1. Get items and their orders
+    items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == v_presupuesto_id).all()
+    if not items:
+        return None
+
+    # Identify related orders and client
+    pedido_ids = list(set(item.pedido_id for item in items if item.pedido_id))
+    pedidos = db.query(SpfPedido).filter(SpfPedido.id.in_(pedido_ids)).all() if pedido_ids else []
+    
+    cliente_map = {}
+    cliente_ids = list(set(p.cliente_id for p in pedidos if p.cliente_id))
+    if cliente_ids:
+        clientes = db.query(SpfCliente).filter(SpfCliente.id.in_(cliente_ids)).all()
+        cliente_map = {c.id: c.nombre for c in clientes}
+
+    # 2. Map Complement names
+    complement_ids = []
+    for item in items:
+        for c in item.complementos:
+            complement_ids.append(c.v_complemento_id)
+    
+    complement_names = {}
+    if complement_ids:
+        v_comps = db.query(SpfVComplemento).filter(SpfVComplemento.id.in_(list(set(complement_ids)))).all()
+        complement_names = {vc.id: vc.nombre for vc in v_comps}
+
+    # 3. Handle Billing & Remitos (Tango Unions)
+    # We query the bodies related to these items or pedidos
+    # This part can be complex due to polymorphic links.
+    
+    # helper to process billing/dispatch per line
+    def get_line_progress(item_id: int, item_type: str, total_qty_expected: float):
+        # Find bodies in union
+        bodies = db.query(SpfTangoBody).filter(
+            SpfTangoBody.linea_item_id == item_id,
+            SpfTangoBody.linea_item_type == item_type
+        ).all()
+        hist_bodies = db.query(SpfTangoBodyHistorico).filter(
+            SpfTangoBodyHistorico.linea_item_id == item_id,
+            SpfTangoBodyHistorico.linea_item_type == item_type
+        ).all()
+        
+        all_body_ids = [b.id for b in bodies] + [b.id for b in hist_bodies]
+        if not all_body_ids:
+            return 0.0, 0.0, []
+
+        # Sum facturado/remitido
+        f_sum = db.query(func.sum(SpfLineaTangoFacturada.cantidad_ya_facturada)).filter(
+            SpfLineaTangoFacturada.tango_body_id.in_(all_body_ids)
+        ).scalar() or 0.0
+        
+        r_sum = db.query(func.sum(SpfLineaTangoRemitida.cantidad_ya_remitida)).filter(
+            SpfLineaTangoRemitida.tango_body_id.in_(all_body_ids)
+        ).scalar() or 0.0
+
+        # Get comprobantes associated
+        comp_fact = db.query(SpfComprobanteTemp).join(
+            SpfLineaTangoFacturada, SpfComprobanteTemp.id == SpfLineaTangoFacturada.comprobante_temp_id
+        ).filter(SpfLineaTangoFacturada.tango_body_id.in_(all_body_ids)).all()
+        
+        comp_remit = db.query(SpfComprobanteTemp).join(
+            SpfLineaTangoRemitida, SpfComprobanteTemp.id == SpfLineaTangoRemitida.comprobante_temp_id
+        ).filter(SpfLineaTangoRemitida.tango_body_id.in_(all_body_ids)).all()
+        
+        comprobantes = []
+        for c in set(comp_fact + comp_remit):
+            comprobantes.append({
+                "nro_factura": c.nro_factura,
+                "nro_remito": c.nro_remito,
+                "empresa": "Fontela" if "Tango A" in (c.talonario or "") else "Viviana" if "Tango B" in (c.talonario or "") else c.talonario
+            })
+
+        perc_f = (float(f_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
+        perc_r = (float(r_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
+        
+        return min(perc_f, 100.0), min(perc_r, 100.0), comprobantes
+
+    # 4. Construct Output
+    pedidos_out = []
+    for p in pedidos:
+        p_items = [it for it in items if it.pedido_id == p.id]
+        items_detail = []
+        
+        for it in p_items:
+            # Item Medidas
+            for med in it.medidas:
+                qty = med.cantidad or 1
+                sup = float(med.superficie or 0)
+                tot = float(med.total_item or 0)
+                
+                # Based on requirement: superficie is subtotal (total of the line)
+                # precio por m2 = total_item / superficie
+                # precio unitario = total_item / cantidad
+                
+                pf, pr, comps = get_line_progress(med.id, 'SpfPedido::ItemMedida', float(qty))
+                
+                items_detail.append({
+                    "tipo": "Medida",
+                    "descripcion": med.denominacion or it.descripcion,
+                    "cantidad": qty,
+                    "importe_total": tot,
+                    "precio_unitario": tot / qty if qty > 0 else 0,
+                    "precio_m2": tot / sup if sup > 0 else 0,
+                    "avance_facturado": pf,
+                    "avance_remitido": pr,
+                    "comprobantes": comps
+                })
+            
+            # Item Complementos
+            for comp in it.complementos:
+                qty = comp.cantidad or 1
+                tot = float(comp.total_complemento or 0)
+                desc = complement_names.get(comp.v_complemento_id, f"Complemento {comp.v_complemento_id}")
+                
+                pf, pr, comps = get_line_progress(comp.id, 'SpfPedido::ItemComplemento', float(qty))
+                
+                items_detail.append({
+                    "tipo": "Complemento",
+                    "descripcion": desc,
+                    "cantidad": qty,
+                    "importe_total": tot,
+                    "precio_unitario": tot / qty if qty > 0 else 0,
+                    "avance_facturado": pf,
+                    "avance_remitido": pr,
+                    "comprobantes": comps
+                })
+
+        pedidos_out.append({
+            "id": p.id,
+            "nro_pedido": p.nro_pedido,
+            "estado": ESTADOS_PEDIDO.get(p.estado_id, f"Estado {p.estado_id}"),
+            "cliente": cliente_map.get(p.cliente_id, "Desconocido"),
+            "items": items_detail
+        })
+
+    return {
+        "v_presupuesto_id": v_presupuesto_id,
+        "pedidos": pedidos_out
+    }
+

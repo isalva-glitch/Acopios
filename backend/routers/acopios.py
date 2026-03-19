@@ -317,3 +317,27 @@ async def delete_acopio(
     db.delete(acopio)
     db.commit()
     return None
+
+
+@router.get("/{acopio_id}/avance-comercial")
+async def get_acopio_avance_comercial(
+    acopio_id: int,
+    db: Session = Depends(get_db),
+    spf_db: Session = Depends(get_spf_db)
+):
+    """
+    Obtiene el avance comercial (facturación/remitos) para un acopio local 
+    consultando en tiempo real a la base SPF.
+    """
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    if not acopio:
+        raise HTTPException(status_code=404, detail="Acopio no encontrado")
+    
+    if not acopio.v_presupuesto_id:
+        raise HTTPException(status_code=400, detail="Este acopio no está vinculado a un presupuesto SPF")
+        
+    try:
+        avance = spf_services.get_avance_comercial_acopio(spf_db, acopio.v_presupuesto_id)
+        return avance
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

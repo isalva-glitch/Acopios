@@ -96,3 +96,81 @@ class SpfItemComplemento(SpfBase):
     updated_at = Column(DateTime)
 
     item = relationship("SpfItem", back_populates="complementos")
+
+
+class SpfCliente(SpfBase):
+    """Mapping to public.clientes in SPF."""
+    __tablename__ = 'clientes'
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String(255))
+
+
+class SpfVComplemento(SpfBase):
+    """Mapping to public.v_complementos in SPF."""
+    __tablename__ = 'v_complementos'
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String(255))
+
+
+class SpfComprobanteTemp(SpfBase):
+    """Mapping to public.comprobante_temps in SPF."""
+    __tablename__ = 'comprobante_temps'
+    id = Column(Integer, primary_key=True)
+    pedido_id = Column(Integer, ForeignKey('pedidos.id'))
+    nro_factura = Column(String(50))
+    nro_remito = Column(String(50))
+    talonario = Column(String(50)) # Tango A = Fontela, Tango B = Viviana
+
+
+class SpfTangoHeader(SpfBase):
+    """Mapping to public.tango_headers in SPF."""
+    __tablename__ = 'tango_headers'
+    id = Column(Integer, primary_key=True)
+    pedido_id = Column(Integer, ForeignKey('pedidos.id'))
+    cliente_id = Column(Integer)
+    # nro_comprobante, etc.
+
+
+class SpfTangoHeaderHistorico(SpfBase):
+    """Mapping to public.tango_header_historicos (Legacy/Audit)."""
+    __tablename__ = 'tango_header_historicos'
+    id = Column(Integer, primary_key=True)
+    pedido_id = Column(Integer, ForeignKey('pedidos.id'))
+
+
+class SpfTangoBody(SpfBase):
+    """Mapping to public.tango_bodies in SPF."""
+    __tablename__ = 'tango_bodies'
+    id = Column(Integer, primary_key=True)
+    tango_header_id = Column(Integer) # Non-FK usually in these unions but linked by logic
+    linea_item_id = Column(Integer) # PM: Polymorphic ID to item_medidas or item_complementos
+    linea_item_type = Column(String(50)) # 'SpfPedido::ItemMedida' or 'SpfPedido::ItemComplemento'
+    cantidad_pedida = Column(Numeric(12, 2))
+
+
+class SpfTangoBodyHistorico(SpfBase):
+    """Mapping to public.tango_body_historicos."""
+    __tablename__ = 'tango_body_historicos'
+    id = Column(Integer, primary_key=True)
+    tango_header_id = Column(Integer)
+    linea_item_id = Column(Integer)
+    linea_item_type = Column(String(50))
+    cantidad_pedida = Column(Numeric(12, 2))
+
+
+class SpfLineaTangoFacturada(SpfBase):
+    """Mapping to public.linea_tango_facturadas."""
+    __tablename__ = 'linea_tango_facturadas'
+    id = Column(Integer, primary_key=True)
+    tango_body_id = Column(Integer) # Can be from Body or BodyHistorico
+    comprobante_temp_id = Column(Integer, ForeignKey('comprobante_temps.id'))
+    cantidad_ya_facturada = Column(Numeric(12, 2))
+
+
+class SpfLineaTangoRemitida(SpfBase):
+    """Mapping to public.linea_tango_remitidas."""
+    __tablename__ = 'linea_tango_remitidas'
+    id = Column(Integer, primary_key=True)
+    tango_body_id = Column(Integer)
+    comprobante_temp_id = Column(Integer, ForeignKey('comprobante_temps.id'))
+    cantidad_ya_remitida = Column(Numeric(12, 2))

@@ -5,7 +5,9 @@ import apiClient from '../api/client';
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
     const [acopio, setAcopio] = useState<any>(null);
+    const [avanceComercial, setAvanceComercial] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [loadingAvance, setLoadingAvance] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -18,11 +20,28 @@ function DetalleAcopio() {
 
         try {
             const response = await apiClient.get(`/acopios/${id}`);
-            setAcopio(response.data);
+            const data = response.data;
+            setAcopio(data);
+            
+            if (data.v_presupuesto_id) {
+                loadAvanceComercial(id!);
+            }
         } catch (err: any) {
             setError(err.response?.data?.detail || 'Error al cargar el acopio');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadAvanceComercial = async (acopioId: string) => {
+        setLoadingAvance(true);
+        try {
+            const response = await apiClient.get(`/acopios/${acopioId}/avance-comercial`);
+            setAvanceComercial(response.data);
+        } catch (err) {
+            console.error('Error loading commercial advancement:', err);
+        } finally {
+            setLoadingAvance(false);
         }
     };
 
@@ -88,6 +107,88 @@ function DetalleAcopio() {
                     </table>
                 </div>
             </div>
+            
+            {avanceComercial && (
+                <div className="form-section">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <h3>Avance Comercial y Documental (SPF)</h3>
+                        {loadingAvance && <span style={{ fontSize: '0.8rem', color: '#666' }}>Actualizando...</span>}
+                    </div>
+                    
+                    {avanceComercial.pedidos.map((p: any) => (
+                        <div key={p.id} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#fff' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', paddingBottom: '0.5rem', marginBottom: '0.8rem' }}>
+                                <h4 style={{ margin: 0 }}>Pedido #{p.nro_pedido}</h4>
+                                <div>
+                                    <span style={{ backgroundColor: '#e9ecef', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.85rem', marginRight: '0.5rem' }}>
+                                        {p.estado}
+                                    </span>
+                                    <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{p.cliente}</span>
+                                </div>
+                            </div>
+                            
+                            <div className="table">
+                                <table style={{ fontSize: '0.9rem' }}>
+                                    <thead>
+                                        <tr>
+                                            <th>Item / Complemento</th>
+                                            <th>Cant.</th>
+                                            <th>Unitario</th>
+                                            <th>Facturado</th>
+                                            <th>Remitido</th>
+                                            <th>Comprobantes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {p.items.map((it: any, iidx: number) => (
+                                            <tr key={iidx}>
+                                                <td>
+                                                    <div style={{ fontWeight: 'bold' }}>{it.descripcion}</div>
+                                                    <div style={{ fontSize: '0.75rem', color: '#666' }}>{it.tipo} {it.precio_m2 > 0 ? `| $${it.precio_m2.toFixed(2)}/m²` : ''}</div>
+                                                </td>
+                                                <td>{it.cantidad}</td>
+                                                <td>${it.precio_unitario.toFixed(2)}</td>
+                                                <td>
+                                                    <div style={{ width: '80px', height: '10px', backgroundColor: '#e9ecef', borderRadius: '5px', overflow: 'hidden', position: 'relative' }}>
+                                                        <div style={{ width: `${it.avance_facturado}%`, height: '100%', backgroundColor: it.avance_facturado >= 100 ? '#27ae60' : '#3498db' }}></div>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.75rem' }}>{it.avance_facturado.toFixed(0)}%</span>
+                                                </td>
+                                                <td>
+                                                    <div style={{ width: '80px', height: '10px', backgroundColor: '#e9ecef', borderRadius: '5px', overflow: 'hidden', position: 'relative' }}>
+                                                        <div style={{ width: `${it.avance_remitido}%`, height: '100%', backgroundColor: it.avance_remitido >= 100 ? '#27ae60' : '#f39c12' }}></div>
+                                                    </div>
+                                                    <span style={{ fontSize: '0.75rem' }}>{it.avance_remitido.toFixed(0)}%</span>
+                                                </td>
+                                                <td>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                        {it.comprobantes.map((c: any, cidx: number) => (
+                                                            <div key={cidx} style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                                                                <span style={{ 
+                                                                    backgroundColor: c.empresa === 'Fontela' ? '#d1ecf1' : c.empresa === 'Viviana' ? '#fff3cd' : '#e2e3e5',
+                                                                    padding: '2px 4px',
+                                                                    borderRadius: '3px',
+                                                                    marginRight: '4px',
+                                                                    fontSize: '0.7rem',
+                                                                    fontWeight: 'bold'
+                                                                }}>
+                                                                    {c.empresa}
+                                                                </span>
+                                                                {c.nro_factura && `F:${c.nro_factura}`} {c.nro_remito && `R:${c.nro_remito}`}
+                                                            </div>
+                                                        ))}
+                                                        {it.comprobantes.length === 0 && <span style={{ color: '#999', fontSize: '0.75rem' }}>Sin comprobantes</span>}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             <div className="form-section">
                 <h3>Total Items ({acopio.items.length})</h3>
