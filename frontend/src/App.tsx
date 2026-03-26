@@ -2,9 +2,6 @@ import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
 import AltaAcopio from './pages/AltaAcopio'
 import ListaAcopios from './pages/ListaAcopios'
 import DetalleAcopio from './pages/DetalleAcopio'
-import AltaPedido from './pages/AltaPedido'
-import ListaPedidos from './pages/ListaPedidos'
-import ImputacionConsumo from './pages/ImputacionConsumo'
 import Reportes from './pages/Reportes'
 import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
@@ -19,10 +16,7 @@ function App() {
                         <ul className="nav-links">
                             <li><Link to="/">Inicio</Link></li>
                             <li><Link to="/acopios">Acopios</Link></li>
-                            <li><Link to="/acopios/alta">Alta Acopio</Link></li>
-                            <li><Link to="/pedidos">Pedidos</Link></li>
-                            <li><Link to="/pedidos/alta">Alta Pedido</Link></li>
-                            <li><Link to="/imputaciones">Imputar</Link></li>
+                            <li><Link to="/acopios/alta">Nuevo Acopio</Link></li>
                             <li><Link to="/reportes">Reportes</Link></li>
                         </ul>
                     </div>
@@ -36,9 +30,6 @@ function App() {
                                 <Route path="/acopios" element={<ListaAcopios />} />
                                 <Route path="/acopios/alta" element={<AltaAcopio />} />
                                 <Route path="/acopios/:id" element={<DetalleAcopio />} />
-                                <Route path="/pedidos" element={<ListaPedidos />} />
-                                <Route path="/pedidos/alta" element={<AltaPedido />} />
-                                <Route path="/imputaciones" element={<ImputacionConsumo />} />
                                 <Route path="/reportes" element={<Reportes />} />
                             </Routes>
                         </ErrorBoundary>
@@ -55,21 +46,17 @@ function Home() {
             <h2>Sistema de Gestión de Acopios</h2>
             <p>Bienvenido al sistema de gestión de acopios de Fontela Cristales.</p>
             <div className="home-cards">
-                <Link to="/acopios/alta" className="card">
-                    <h3>Alta Acopio</h3>
-                    <p>Cargar presupuesto PDF</p>
+                 <Link to="/acopios/alta" className="card">
+                    <h3>Nuevo Acopio</h3>
+                    <p>Desde Presupuesto SPF</p>
                 </Link>
                 <Link to="/acopios" className="card">
                     <h3>Ver Acopios</h3>
-                    <p>Listado de acopios activos</p>
-                </Link>
-                <Link to="/pedidos/alta" className="card">
-                    <h3>Alta Pedido</h3>
-                    <p>Cargar pedido PDF</p>
+                    <p>Listado de saldos activos</p>
                 </Link>
                 <Link to="/reportes" className="card">
                     <h3>Reportes</h3>
-                    <p>Consultas y exportación</p>
+                    <p>Consultas y estadísticas</p>
                 </Link>
             </div>
         </div>

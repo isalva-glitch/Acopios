@@ -9,9 +9,19 @@ from database import get_db
 from models import Pedido
 from storage import save_file
 from extraction import extract_standard_budget_pdf
-from services import pedido_service
+from services import pedido_service, imputacion_service
+from integrations.spf import services as spf_services
+from integrations.spf.database import get_spf_db
+from models import Pedido, Acopio
+from models.pedido import EstadoPedido
+from datetime import date
 
 router = APIRouter()
+
+
+class PedidoConfirmSpf(BaseModel):
+    """Confirmation payload for SPF imputation."""
+    nro_pedido: str
 
 
 # Pydantic models
@@ -192,3 +202,86 @@ async def get_pedido_detail(
             for imp in pedido.imputaciones
         ]
     }
+
+
+@router.post("/from-spf", response_model=PedidoResponse)
+async def create_pedido_from_spf(
+    payload: PedidoConfirmSpf,
+    db: Session = Depends(get_db),
+    spf_db: Session = Depends(get_spf_db)
+):
+    """
+    Crea un pedido local y una imputación automática a partir de un pedido de SPF.
+    """
+    # 1. Fetch SPF order info
+    spf_pedido = spf_services.get_pedido_for_imputation(spf_db, payload.nro_pedido)
+    if not spf_pedido:
+        raise HTTPException(status_code=404, detail="Pedido no encontrado en SPF")
+    
+    if not spf_pedido["v_presupuesto_id"]:
+        raise HTTPException(status_code=400, detail="El pedido no está vinculado a un presupuesto en SPF")
+        
+    # 2. Find local Acopio (Budget holder)
+    acopio = db.query(Acopio).filter(Acopio.v_presupuesto_id == spf_pedido["v_presupuesto_id"]).first()
+    if not acopio:
+        raise HTTPException(
+            status_code=404, 
+            detail=f"No se encontró un acopio local (presupuesto {spf_pedido['v_presupuesto_id']}) para este pedido."
+        )
+        
+    # 3. Find or Create local Pedido (Execution Record)
+    # We use SPF ID or nro_pedido as unique reference to avoid double imputation
+    ref_numero = spf_pedido["nro_pedido"] or spf_pedido["nrooc"] or str(spf_pedido["id"])
+    local_pedido = db.query(Pedido).filter(Pedido.numero == ref_numero).first()
+    
+    if local_pedido:
+        # Check if already imputed to THIS acopio
+        from models import Imputacion
+        existing_imp = db.query(Imputacion).filter(
+            Imputacion.pedido_id == local_pedido.id,
+            Imputacion.acopio_id == acopio.id
+        ).first()
+        if existing_imp:
+             raise HTTPException(status_code=400, detail=f"Este pedido ({ref_numero}) ya ha sido imputado al acopio #{acopio.numero}.")
+    else:
+        # Create new local Pedido record
+        local_pedido = Pedido(
+            numero=ref_numero,
+            obra_id=acopio.obra_id,
+            fecha=date.today(),
+            estado=EstadoPedido.CONFIRMADO, 
+            total_m2=spf_pedido["totals"]["m2"],
+            total_ml=spf_pedido["totals"]["ml"],
+            total_pesos=spf_pedido["totals"]["pesos"]
+        )
+        db.add(local_pedido)
+        db.commit()
+        db.refresh(local_pedido)
+        
+    # 4. Create Imputation (The Actual Consumption)
+    try:
+        imputacion, warning = imputacion_service.imputar_consumo(
+            db,
+            pedido_id=local_pedido.id,
+            acopio_id=acopio.id,
+            acopio_item_id=None, # Overall acopio imputation
+            cantidad_m2=Decimal(str(spf_pedido["totals"]["m2"])),
+            cantidad_ml=Decimal(str(spf_pedido["totals"]["ml"])),
+            cantidad_pesos=Decimal(str(spf_pedido["totals"]["pesos"])),
+            cantidad_unidades=spf_pedido["totals"]["unidades"]
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Error al realizar la imputación: " + str(e))
+        
+    return PedidoResponse(
+        id=local_pedido.id,
+        numero=local_pedido.numero,
+        obra_id=local_pedido.obra_id or 0,
+        fecha=local_pedido.fecha.isoformat(),
+        estado=local_pedido.estado if hasattr(local_pedido.estado, 'value') else str(local_pedido.estado),
+        total_m2=local_pedido.total_m2,
+        total_ml=local_pedido.total_ml,
+        total_pesos=local_pedido.total_pesos
+    )

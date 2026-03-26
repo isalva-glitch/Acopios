@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_, union_all
+from sqlalchemy import func, or_, union_all, cast, String
 from .models import (
     SpfPedido, SpfItem, SpfItemMedida, SpfItemComplemento,
     SpfCliente, SpfVComplemento, SpfComprobanteTemp,
@@ -21,8 +21,9 @@ ESTADOS_PEDIDO = {
 
 def search_presupuestos(db: Session, query: str):
     """
-    Search for presupuestos by v_presupuesto_id or related nro_pedido.
-    Returns a distinct list of v_presupuesto_id.
+    Busca presupuestos únicos en SPF.
+    Un presupuesto es el origen comercial de un acopio.
+    Se puede buscar por el ID del presupuesto o por un número de pedido asociado a él.
     """
     if not query:
         return []
@@ -129,8 +130,9 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
 
 def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
     """
-    Detailed commercial and documentary advancement for an acopio.
-    Fetches orders, items, pricing, billing/dispatch progress and receipts.
+    Obtiene el avance comercial y documental detallado de un acopio (presupuesto).
+    Analiza todos los pedidos de producción vinculados a este presupuesto único y
+    consolida su estado de facturación y remitos.
     """
     # 1. Get items and their orders
     items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == v_presupuesto_id).all()
@@ -267,8 +269,113 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
             "items": items_detail
         })
 
+    # 5. Global Summary
+    global_tot = sum(p["importe_total"] for p_out in pedidos_out for p in p_out["items"])
+    global_fact = sum(p["importe_total"] * (p["avance_facturado"] / 100.0) for p_out in pedidos_out for p in p_out["items"])
+    global_remit = sum(p["importe_total"] * (p["avance_remitido"] / 100.0) for p_out in pedidos_out for p in p_out["items"])
+
     return {
         "v_presupuesto_id": v_presupuesto_id,
+        "cliente": pedidos_out[0]["cliente"] if pedidos_out else "Desconocido",
+        "obra": (pedidos[0].nrooc or "S/D") if pedidos else "S/D",
+        "resumen": {
+            "importe_total": global_tot,
+            "facturado_total": global_fact,
+            "remitido_total": global_remit,
+            "porcentaje_facturado": (global_fact / global_tot * 100) if global_tot > 0 else 0,
+            "porcentaje_remitido": (global_remit / global_tot * 100) if global_tot > 0 else 0,
+        },
         "pedidos": pedidos_out
     }
+
+
+def get_pedido_for_imputation(db: Session, nro_pedido: str):
+    """
+    Busca un pedido de producción específico en SPF para registrar una entrega/consumo.
+    Un pedido representa una ejecución (parcial o total) del presupuesto de acopio.
+    """
+    query = db.query(SpfPedido)
+    
+    # Try exact matches in various fields
+    pedido = None
+    
+    # If numeric, try ID first (per user specialized info) then other foreign IDs
+    if nro_pedido.isdigit():
+        val = int(nro_pedido)
+        # Prioritize ID match
+        pedido = query.filter(SpfPedido.id == val).first()
+        if not pedido:
+            pedido = query.filter(or_(
+                SpfPedido.nro_pedido == val,
+                SpfPedido.id_presupuesto == val
+            )).order_by(SpfPedido.id.desc()).first()
+        
+    # If still not found or not numeric, try nrooc
+    if not pedido:
+        pedido = query.filter(SpfPedido.nrooc == nro_pedido).first()
+        
+    # Final fallback: partial match on nrooc or id_presupuesto (as string)
+    if not pedido:
+        pedido = query.filter(or_(
+            SpfPedido.nrooc.like(f"%{nro_pedido}%"),
+            cast(SpfPedido.id_presupuesto, String).like(f"%{nro_pedido}%")
+        )).order_by(SpfPedido.id.desc()).first()
+        
+    if not pedido:
+        return None
+
+    # Get budget ID (Commercial origin)
+    # We prioritize the id_presupuesto from the pedido table, then fall back to items
+    v_presupuesto_id = str(pedido.id_presupuesto).zfill(9) if pedido.id_presupuesto else None
+
+    # Get items for totals
+    items = db.query(SpfItem).filter(SpfItem.pedido_id == pedido.id).all()
+    
+    total_m2 = 0.0
+    total_ml = 0.0
+    total_pesos = 0.0
+    total_qty = 0
+    
+    for it in items:
+        if not v_presupuesto_id and it.v_presupuesto_id:
+            v_presupuesto_id = str(it.v_presupuesto_id).zfill(9)
+            
+        for med in it.medidas:
+            total_m2 += float(med.superficie or 0) # Already subtotal from requirement
+            total_ml += float(med.perimtero or 0)
+            total_pesos += float(med.total_item or 0)
+            total_qty += (med.cantidad or 0)
+            
+        for comp in it.complementos:
+            total_pesos += float(comp.total_complemento or 0)
+            total_qty += (comp.cantidad or 0)
+
+    # Resolve issuing company
+    talonarios = db.query(SpfComprobanteTemp.talonario).filter(
+        SpfComprobanteTemp.pedido_id == pedido.id
+    ).all()
+    
+    empresa = "Desconocida"
+    if talonarios:
+        talonarios_str = " ".join([t[0] or "" for t in talonarios])
+        if "Tango A" in talonarios_str:
+            empresa = "Fontela"
+        elif "Tango B" in talonarios_str:
+            empresa = "Viviana"
+
+    return {
+        "id": pedido.id,
+        "nro_pedido": pedido.nro_pedido or str(pedido.id),
+        "nrooc": pedido.nrooc,
+        "v_presupuesto_id": v_presupuesto_id,
+        "empresa": empresa,
+        "totals": {
+            "m2": total_m2,
+            "ml": total_ml,
+            "pesos": total_pesos,
+            "unidades": total_qty
+        }
+    }
+
+
 

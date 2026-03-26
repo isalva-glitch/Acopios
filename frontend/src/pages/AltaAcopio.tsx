@@ -71,7 +71,7 @@ function AltaAcopio() {
 
     return (
         <div className="alta-acopio">
-            <h2>Alta de Acopio desde SPF</h2>
+            <h2>Crear Acopio desde Presupuesto SPF</h2>
 
             {loading && (
                 <div className="spinner-overlay">
@@ -91,10 +91,10 @@ function AltaAcopio() {
 
             {!success && !preview && (
                 <div className="form-section">
-                    <h3>1. Buscar Presupuesto SPF</h3>
+                    <h3>1. Seleccionar Presupuesto de Origen (SPF)</h3>
                     <form onSubmit={handleSearch} className="form-group" style={{ display: 'flex', gap: '10px' }}>
                         <div style={{ flex: 1 }}>
-                            <label>ID Presupuesto o Nro Pedido SPF:</label>
+                            <label>ID Presupuesto o Nro Referencia (Nro OC):</label>
                             <input
                                 type="text"
                                 value={searchQuery}

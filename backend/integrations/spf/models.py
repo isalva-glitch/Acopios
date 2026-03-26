@@ -10,8 +10,9 @@ class SpfPedido(SpfBase):
     __tablename__ = 'pedidos'
 
     id = Column(Integer, primary_key=True)
-    id_presupuesto = Column(String(50))
-    nro_pedido = Column(String(50))
+    id_presupuesto = Column(Integer)
+    nro_pedido = Column(Integer)
+    nrooc = Column(String(50))
     cliente_id = Column(Integer)
     contacto_id = Column(Integer)
     fecha_activacion = Column(Date)

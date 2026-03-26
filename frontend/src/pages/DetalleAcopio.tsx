@@ -10,6 +10,14 @@ function DetalleAcopio() {
     const [loadingAvance, setLoadingAvance] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Imputation states
+    const [showImputer, setShowImputer] = useState(false);
+    const [nroPedidoBusqueda, setNroPedidoBusqueda] = useState('');
+    const [imputationPreview, setImputationPreview] = useState<any>(null);
+    const [imputationLoading, setImputationLoading] = useState(false);
+    const [imputationError, setImputationError] = useState<string | null>(null);
+    const [imputationSuccess, setImputationSuccess] = useState(false);
+
     useEffect(() => {
         loadAcopio();
     }, [id]);
@@ -45,6 +53,51 @@ function DetalleAcopio() {
         }
     };
 
+    const handleSearchPedido = async () => {
+        if (!nroPedidoBusqueda.trim()) return;
+        setImputationLoading(true);
+        setImputationError(null);
+        setImputationSuccess(false);
+
+        try {
+            const response = await apiClient.get(`/integrations/spf/pedidos/${nroPedidoBusqueda}/imputation-preview`);
+            const data = response.data;
+            
+            // Validate that the pedido belongs to THIS acopio's budget
+            if (data.spf_pedido.v_presupuesto_id !== acopio.v_presupuesto_id) {
+                setImputationError(`El pedido ${nroPedidoBusqueda} pertenece al presupuesto ${data.spf_pedido.v_presupuesto_id}, pero este acopio es del presupuesto ${acopio.v_presupuesto_id}.`);
+                setImputationPreview(null);
+            } else {
+                setImputationPreview(data);
+            }
+        } catch (err: any) {
+            setImputationError(err.response?.data?.detail || 'No se encontró el pedido en SPF.');
+            setImputationPreview(null);
+        } finally {
+            setImputationLoading(false);
+        }
+    };
+
+    const handleConfirmImputation = async () => {
+        if (!imputationPreview) return;
+        setImputationLoading(true);
+        try {
+            await apiClient.post('/pedidos/from-spf', {
+                nro_pedido: nroPedidoBusqueda
+            });
+            setImputationSuccess(true);
+            setImputationPreview(null);
+            setNroPedidoBusqueda('');
+            setShowImputer(false);
+            // Reload EVERYTHING to see new balances and history
+            loadAcopio();
+        } catch (err: any) {
+            setImputationError(err.response?.data?.detail || 'Error al confirmar la imputación');
+        } finally {
+            setImputationLoading(false);
+        }
+    };
+
     if (loading) {
         return <div className="loading">Cargando detalle...</div>;
     }
@@ -55,21 +108,95 @@ function DetalleAcopio() {
 
     return (
         <div className="detalle-acopio">
-            <h2>Detalle de Acopio #{acopio.numero}</h2>
+            <h2>Acopio - Presupuesto SPF #{acopio.v_presupuesto_id || acopio.numero}</h2>
 
             <div className="form-section">
                 <h3>Información General</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
                     <div>
-                        <strong>Cliente:</strong> {acopio.obra?.cliente?.nombre || `SPF ID: ${acopio.cliente_id}`}<br />
-                        <strong>Obra:</strong> {acopio.obra?.nombre || 'Presupuesto Externo (SPF)'}<br />
+                        <strong>Cliente:</strong> {avanceComercial?.cliente || acopio.obra?.cliente?.nombre || `SPF ID: ${acopio.cliente_id}`}<br />
+                        <strong>Obra:</strong> {avanceComercial?.obra || acopio.obra?.nombre || `Presupuesto: ${acopio.v_presupuesto_id}`}<br />
                         <strong>Fecha Alta:</strong> {new Date(acopio.fecha_alta).toLocaleDateString()}
                     </div>
                     <div>
                         <strong>Estado:</strong> {acopio.estado}<br />
                     </div>
+                    <div style={{ textAlign: 'right' }}>
+                        {acopio.estado === 'CONSUMIDO' ? (
+                            <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>
+                                ✓ Material Consumido
+                            </span>
+                        ) : (
+                            <button 
+                                className="btn btn-primary" 
+                                onClick={() => setShowImputer(!showImputer)}
+                            >
+                                {showImputer ? 'Cancelar Imputación' : 'Imputar Nuevo Pedido'}
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
+
+            {showImputer && acopio.estado !== 'CONSUMIDO' && (
+                <div className="form-section" style={{ border: '2px solid #3498db', backgroundColor: '#ebf5fb' }}>
+                    <h3>Nueva Imputación (Descarga de Material)</h3>
+                    
+                    {!imputationPreview && !imputationSuccess && (
+                        <div className="form-group" style={{ display: 'flex', gap: '0.5rem' }}>
+                            <input 
+                                type="text"
+                                value={nroPedidoBusqueda}
+                                onChange={(e) => setNroPedidoBusqueda(e.target.value)}
+                                placeholder="Ingrese Nro Pedido SPF o Nro OC..."
+                                style={{ flex: 1, padding: '10px' }}
+                                onKeyPress={(e) => e.key === 'Enter' && handleSearchPedido()}
+                            />
+                            <button className="btn btn-primary" onClick={handleSearchPedido} disabled={imputationLoading}>
+                                {imputationLoading ? 'Buscando...' : 'Buscar'}
+                            </button>
+                        </div>
+                    )}
+
+                    {imputationError && (
+                        <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '1rem', borderRadius: '4px', marginBottom: '1rem' }}>
+                            {imputationError}
+                        </div>
+                    )}
+
+                    {imputationPreview && (
+                        <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #3498db' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                                <div>
+                                    <p><strong>Pedido SPF:</strong> {imputationPreview.spf_pedido.nro_pedido}</p>
+                                    <p><strong>Referencia (OC):</strong> {imputationPreview.spf_pedido.nrooc || 'S/D'}</p>
+                                    <p><strong>Empresa:</strong> {imputationPreview.spf_pedido.empresa}</p>
+                                </div>
+                                <div>
+                                    <p><strong>Cant. Paños:</strong> {imputationPreview.spf_pedido.totals.unidades}</p>
+                                    <p><strong>Superficie:</strong> {imputationPreview.spf_pedido.totals.m2.toFixed(2)} m²</p>
+                                    <p><strong>Importe:</strong> ${imputationPreview.spf_pedido.totals.pesos.toLocaleString()}</p>
+                                </div>
+                            </div>
+                            <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
+                                <button className="btn btn-success" onClick={handleConfirmImputation} disabled={imputationLoading} style={{ flex: 1 }}>
+                                    {imputationLoading ? 'Confirmando...' : 'Confirmar e Imputar'}
+                                </button>
+                                <button className="btn btn-secondary" onClick={() => setImputationPreview(null)}>
+                                    Volver
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {imputationSuccess && (
+                <div className="form-section" style={{ backgroundColor: '#d4edda', color: '#155724' }}>
+                    <strong>✓ Imputación realizada con éxito.</strong> Los saldos se han actualizado.
+                    <button className="btn btn-link" onClick={() => setImputationSuccess(false)}>Cerrar</button>
+                </div>
+            )}
 
             <div className="form-section">
                 <h3>Totales y Saldos</h3>
@@ -111,84 +238,54 @@ function DetalleAcopio() {
             {avanceComercial && (
                 <div className="form-section">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h3>Avance Comercial y Documental (SPF)</h3>
+                        <h3>Avance Comercial y Documental</h3>
                         {loadingAvance && <span style={{ fontSize: '0.8rem', color: '#666' }}>Actualizando...</span>}
                     </div>
                     
-                    {avanceComercial.pedidos.map((p: any) => (
-                        <div key={p.id} style={{ border: '1px solid #eee', borderRadius: '8px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#fff' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f0f0f0', paddingBottom: '0.5rem', marginBottom: '0.8rem' }}>
-                                <h4 style={{ margin: 0 }}>Pedido #{p.nro_pedido}</h4>
-                                <div>
-                                    <span style={{ backgroundColor: '#e9ecef', padding: '0.2rem 0.5rem', borderRadius: '4px', fontSize: '0.85rem', marginRight: '0.5rem' }}>
-                                        {p.estado}
-                                    </span>
-                                    <span style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>{p.cliente}</span>
-                                </div>
+                    <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1.2rem', backgroundColor: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', alignItems: 'center' }}>
+                            <div>
+                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Total Presupuesto</div>
+                                <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>${avanceComercial.resumen.importe_total.toLocaleString()}</div>
                             </div>
                             
-                            <div className="table">
-                                <table style={{ fontSize: '0.9rem' }}>
-                                    <thead>
-                                        <tr>
-                                            <th>Item / Complemento</th>
-                                            <th>Cant.</th>
-                                            <th>Unitario</th>
-                                            <th>Facturado</th>
-                                            <th>Remitido</th>
-                                            <th>Comprobantes</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {p.items.map((it: any, iidx: number) => (
-                                            <tr key={iidx}>
-                                                <td>
-                                                    <div style={{ fontWeight: 'bold' }}>{it.descripcion}</div>
-                                                    <div style={{ fontSize: '0.75rem', color: '#666' }}>{it.tipo} {it.precio_m2 > 0 ? `| $${it.precio_m2.toFixed(2)}/m²` : ''}</div>
-                                                </td>
-                                                <td>{it.cantidad}</td>
-                                                <td>${it.precio_unitario.toFixed(2)}</td>
-                                                <td>
-                                                    <div style={{ width: '80px', height: '10px', backgroundColor: '#e9ecef', borderRadius: '5px', overflow: 'hidden', position: 'relative' }}>
-                                                        <div style={{ width: `${it.avance_facturado}%`, height: '100%', backgroundColor: it.avance_facturado >= 100 ? '#27ae60' : '#3498db' }}></div>
-                                                    </div>
-                                                    <span style={{ fontSize: '0.75rem' }}>{it.avance_facturado.toFixed(0)}%</span>
-                                                </td>
-                                                <td>
-                                                    <div style={{ width: '80px', height: '10px', backgroundColor: '#e9ecef', borderRadius: '5px', overflow: 'hidden', position: 'relative' }}>
-                                                        <div style={{ width: `${it.avance_remitido}%`, height: '100%', backgroundColor: it.avance_remitido >= 100 ? '#27ae60' : '#f39c12' }}></div>
-                                                    </div>
-                                                    <span style={{ fontSize: '0.75rem' }}>{it.avance_remitido.toFixed(0)}%</span>
-                                                </td>
-                                                <td>
-                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                                        {it.comprobantes.map((c: any, cidx: number) => (
-                                                            <div key={cidx} style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                                                                <span style={{ 
-                                                                    backgroundColor: c.empresa === 'Fontela' ? '#d1ecf1' : c.empresa === 'Viviana' ? '#fff3cd' : '#e2e3e5',
-                                                                    padding: '2px 4px',
-                                                                    borderRadius: '3px',
-                                                                    marginRight: '4px',
-                                                                    fontSize: '0.7rem',
-                                                                    fontWeight: 'bold'
-                                                                }}>
-                                                                    {c.empresa}
-                                                                </span>
-                                                                {c.nro_factura && `F:${c.nro_factura}`} {c.nro_remito && `R:${c.nro_remito}`}
-                                                            </div>
-                                                        ))}
-                                                        {it.comprobantes.length === 0 && <span style={{ color: '#999', fontSize: '0.75rem' }}>Sin comprobantes</span>}
-                                                    </div>
-                                                </td>
-                                            </tr>
+                            <div>
+                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Avance Facturado</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ flex: 1, height: '12px', backgroundColor: '#e9ecef', borderRadius: '6px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${avanceComercial.resumen.porcentaje_facturado}%`, height: '100%', backgroundColor: '#3498db' }}></div>
+                                    </div>
+                                    <span style={{ fontWeight: 'bold', minWidth: '40px' }}>{avanceComercial.resumen.porcentaje_facturado.toFixed(0)}%</span>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Avance Remitido</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <div style={{ flex: 1, height: '12px', backgroundColor: '#e9ecef', borderRadius: '6px', overflow: 'hidden' }}>
+                                        <div style={{ width: `${avanceComercial.resumen.porcentaje_remitido}%`, height: '100%', backgroundColor: '#f39c12' }}></div>
+                                    </div>
+                                    <span style={{ fontWeight: 'bold', minWidth: '40px' }}>{avanceComercial.resumen.porcentaje_remitido.toFixed(0)}%</span>
+                                </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                                <details style={{ cursor: 'pointer' }}>
+                                    <summary style={{ fontSize: '0.85rem', color: '#3498db' }}>Ver Detalle Pedidos</summary>
+                                    <div style={{ marginTop: '1rem', textAlign: 'left', fontSize: '0.8rem', borderTop: '1px solid #eee', paddingTop: '0.5rem' }}>
+                                        {avanceComercial.pedidos.map((p: any) => (
+                                            <div key={p.id} style={{ marginBottom: '4px' }}>
+                                                Pedido {p.nro_pedido}: <strong>{p.estado}</strong>
+                                            </div>
                                         ))}
-                                    </tbody>
-                                </table>
+                                    </div>
+                                </details>
                             </div>
                         </div>
-                    ))}
+                    </div>
                 </div>
             )}
+
 
             <div className="form-section">
                 <h3>Total Items ({acopio.items.length})</h3>
@@ -247,12 +344,12 @@ function DetalleAcopio() {
 
             {acopio.imputaciones.length > 0 && (
                 <div className="form-section">
-                    <h3>Imputaciones ({acopio.imputaciones.length})</h3>
+                    <h3>Pedidos de Producción / Consumos ({acopio.imputaciones.length})</h3>
                     <div className="table">
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Pedido</th>
+                                    <th>Pedido / OC</th>
                                     <th>m²</th>
                                     <th>ml</th>
                                     <th>$</th>

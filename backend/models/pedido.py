@@ -29,7 +29,7 @@ class Pedido(BaseModel):
     total_pesos = Column(Numeric(15, 2), nullable=False, default=0)
     
     # Foreign keys
-    obra_id = Column(Integer, ForeignKey("obras.id"), nullable=False)
+    obra_id = Column(Integer, ForeignKey("obras.id"), nullable=True)
     
     # Relationships
     obra = relationship("Obra", back_populates="pedidos")
