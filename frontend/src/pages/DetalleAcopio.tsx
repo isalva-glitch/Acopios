@@ -17,6 +17,8 @@ function DetalleAcopio() {
     const [imputationLoading, setImputationLoading] = useState(false);
     const [imputationError, setImputationError] = useState<string | null>(null);
     const [imputationSuccess, setImputationSuccess] = useState(false);
+    const [anulandoId, setAnulandoId] = useState<number | null>(null);
+    const [anulacionError, setAnulacionError] = useState<string | null>(null);
 
     useEffect(() => {
         loadAcopio();
@@ -53,23 +55,44 @@ function DetalleAcopio() {
         }
     };
 
+    const [crossBudgetWarning, setCrossBudgetWarning] = useState<string | null>(null);
+
+    const handleAnularImputacion = async (imputacionId: number, pedidoNumero: string) => {
+        if (!window.confirm(`¿Confirma anular la imputación del pedido ${pedidoNumero}?\n\nEsta acción restaurará los saldos del acopio.`)) return;
+
+        setAnulandoId(imputacionId);
+        setAnulacionError(null);
+        try {
+            await apiClient.delete(`/imputaciones/${imputacionId}`);
+            await loadAcopio(); // Reload to show updated saldos
+        } catch (err: any) {
+            setAnulacionError(err.response?.data?.detail || 'Error al anular la imputación');
+        } finally {
+            setAnulandoId(null);
+        }
+    };
+
     const handleSearchPedido = async () => {
         if (!nroPedidoBusqueda.trim()) return;
         setImputationLoading(true);
         setImputationError(null);
+        setCrossBudgetWarning(null);
         setImputationSuccess(false);
 
         try {
             const response = await apiClient.get(`/integrations/spf/pedidos/${nroPedidoBusqueda}/imputation-preview`);
             const data = response.data;
             
-            // Validate that the pedido belongs to THIS acopio's budget
-            if (data.spf_pedido.v_presupuesto_id !== acopio.v_presupuesto_id) {
-                setImputationError(`El pedido ${nroPedidoBusqueda} pertenece al presupuesto ${data.spf_pedido.v_presupuesto_id}, pero este acopio es del presupuesto ${acopio.v_presupuesto_id}.`);
-                setImputationPreview(null);
-            } else {
-                setImputationPreview(data);
+            const acopioBudgetId = acopio.v_presupuesto_id || acopio.numero;
+            const pedidoBudgetId = data.spf_pedido.v_presupuesto_id;
+            
+            const norm = (s: string) => s?.replace(/^0+/, '') || '';
+            
+            if (norm(pedidoBudgetId) !== norm(acopioBudgetId)) {
+                setCrossBudgetWarning(`Atención: El pedido ${nroPedidoBusqueda} pertenece al presupuesto ${pedidoBudgetId}, pero lo está imputando a este acopio (${acopioBudgetId}).`);
             }
+            
+            setImputationPreview(data);
         } catch (err: any) {
             setImputationError(err.response?.data?.detail || 'No se encontró el pedido en SPF.');
             setImputationPreview(null);
@@ -83,13 +106,14 @@ function DetalleAcopio() {
         setImputationLoading(true);
         try {
             await apiClient.post('/pedidos/from-spf', {
-                nro_pedido: nroPedidoBusqueda
+                nro_pedido: nroPedidoBusqueda,
+                acopio_id: Number(id)
             });
             setImputationSuccess(true);
             setImputationPreview(null);
             setNroPedidoBusqueda('');
+            setCrossBudgetWarning(null);
             setShowImputer(false);
-            // Reload EVERYTHING to see new balances and history
             loadAcopio();
         } catch (err: any) {
             setImputationError(err.response?.data?.detail || 'Error al confirmar la imputación');
@@ -164,6 +188,12 @@ function DetalleAcopio() {
                         </div>
                     )}
 
+                    {crossBudgetWarning && (
+                        <div style={{ color: '#856404', backgroundColor: '#fff3cd', padding: '1rem', borderRadius: '4px', marginBottom: '1rem', border: '1px solid #ffeeba' }}>
+                            {crossBudgetWarning}
+                        </div>
+                    )}
+
                     {imputationPreview && (
                         <div style={{ backgroundColor: '#fff', padding: '1rem', borderRadius: '8px', border: '1px solid #3498db' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
@@ -217,18 +247,18 @@ function DetalleAcopio() {
                             </tr>
                             <tr>
                                 <td><strong>m²</strong></td>
-                                <td>{acopio.totals.m2.toFixed(2)}</td>
-                                <td>{acopio.saldos.m2.toFixed(2)}</td>
+                                <td>{Number(acopio.totals.m2).toFixed(2)}</td>
+                                <td>{Number(acopio.saldos.m2).toFixed(2)}</td>
                             </tr>
                             <tr>
                                 <td><strong>ml</strong></td>
-                                <td>{acopio.totals.ml.toFixed(2)}</td>
-                                <td>{acopio.saldos.ml.toFixed(2)}</td>
+                                <td>{Number(acopio.totals.ml).toFixed(2)}</td>
+                                <td>{Number(acopio.saldos.ml).toFixed(2)}</td>
                             </tr>
                             <tr>
                                 <td><strong>Pesos</strong></td>
-                                <td>${acopio.totals.pesos.toFixed(2)}</td>
-                                <td>${acopio.saldos.pesos.toFixed(2)}</td>
+                                <td>${Number(acopio.totals.pesos).toFixed(2)}</td>
+                                <td>${Number(acopio.saldos.pesos).toFixed(2)}</td>
                             </tr>
                         </tbody>
                     </table>
@@ -297,20 +327,20 @@ function DetalleAcopio() {
                         </p>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginTop: '0.5rem' }}>
                             <div>
-                                <strong>m²:</strong> {item.totals.m2.toFixed(2)} (saldo: {item.saldos.m2.toFixed(2)})
+                                <strong>m²:</strong> {Number(item.totals.m2).toFixed(2)} (saldo: {Number(item.saldos.m2).toFixed(2)})
                             </div>
                             <div>
-                                <strong>ml:</strong> {item.totals.ml.toFixed(2)} (saldo: {item.saldos.ml.toFixed(2)})
+                                <strong>ml:</strong> {Number(item.totals.ml).toFixed(2)} (saldo: {Number(item.saldos.ml).toFixed(2)})
                             </div>
                             <div>
-                                <strong>$:</strong> {item.totals.pesos.toFixed(2)} (saldo: {item.saldos.pesos.toFixed(2)})
+                                <strong>$:</strong> {Number(item.totals.pesos).toFixed(2)} (saldo: {Number(item.saldos.pesos).toFixed(2)})
                             </div>
                         </div>
 
                         {item.panos.length > 0 && (
                             <details style={{ marginTop: '0.5rem' }}>
                                 <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
-                                    Paños ({item.panos.length})
+                                    Paños ({item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0)})
                                 </summary>
                                 <div className="table" style={{ marginTop: '0.5rem' }}>
                                     <table>
@@ -338,6 +368,36 @@ function DetalleAcopio() {
                                 </div>
                             </details>
                         )}
+
+                        {item.adicionales && item.adicionales.length > 0 && (
+                            <details style={{ marginTop: '0.5rem' }}>
+                                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#e67e22' }}>
+                                    Adicionales / Servicios ({item.adicionales.length})
+                                </summary>
+                                <div className="table" style={{ marginTop: '0.5rem' }}>
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Cantidad</th>
+                                                <th>Descripción</th>
+                                                <th>Unitario</th>
+                                                <th>Total</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {item.adicionales.map((adc: any) => (
+                                                <tr key={adc.id}>
+                                                    <td>{adc.cantidad}</td>
+                                                    <td>{adc.descripcion}</td>
+                                                    <td>${Number(adc.precio_unitario).toFixed(2)}</td>
+                                                    <td>${Number(adc.precio_total).toFixed(2)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </details>
+                        )}
                     </div>
                 ))}
             </div>
@@ -345,6 +405,11 @@ function DetalleAcopio() {
             {acopio.imputaciones.length > 0 && (
                 <div className="form-section">
                     <h3>Pedidos de Producción / Consumos ({acopio.imputaciones.length})</h3>
+                    {anulacionError && (
+                        <div style={{ backgroundColor: '#f8d7da', padding: '8px', borderRadius: '4px', marginBottom: '10px', fontSize: '0.9rem', color: '#721c24' }}>
+                            ⚠️ {anulacionError}
+                        </div>
+                    )}
                     <div className="table">
                         <table>
                             <thead>
@@ -354,6 +419,7 @@ function DetalleAcopio() {
                                     <th>ml</th>
                                     <th>$</th>
                                     <th>Excedente</th>
+                                    <th>Acciones</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -364,6 +430,24 @@ function DetalleAcopio() {
                                         <td>{imp.cantidad_ml}</td>
                                         <td>${imp.cantidad_pesos}</td>
                                         <td>{imp.es_excedente ? '⚠️ Sí' : 'No'}</td>
+                                        <td>
+                                            <button
+                                                onClick={() => handleAnularImputacion(imp.id, imp.pedido_numero)}
+                                                disabled={anulandoId === imp.id}
+                                                style={{
+                                                    background: 'none',
+                                                    border: '1px solid #dc3545',
+                                                    color: '#dc3545',
+                                                    borderRadius: '4px',
+                                                    padding: '2px 10px',
+                                                    cursor: 'pointer',
+                                                    fontSize: '0.85rem',
+                                                    fontWeight: 'bold'
+                                                }}
+                                            >
+                                                {anulandoId === imp.id ? 'Anulando...' : 'Anular'}
+                                            </button>
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

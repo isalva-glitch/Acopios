@@ -52,6 +52,6 @@ async def create_remito(
         id=remito.id,
         pedido_id=remito.pedido_id,
         numero=remito.numero,
-        fecha=remito.fecha.isoformat(),
+        fecha=remito.fecha.isoformat() if remito.fecha else "",
         descripcion=remito.descripcion
     )

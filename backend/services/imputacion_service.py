@@ -130,3 +130,31 @@ def imputar_consumo(
     return_warning = warning if (is_excedente and policy == ExcedentePolicy.WARN) else None
     
     return imputacion, return_warning
+
+
+def anular_imputacion(db: Session, imputacion_id: int) -> dict:
+    """
+    Anula (elimina) una imputación y recalcula los saldos del acopio.
+
+    Returns:
+        dict with acopio_id affected
+
+    Raises:
+        ValueError if imputacion not found
+    """
+    from models import Imputacion
+    from services.acopio_service import update_saldos
+
+    imputacion = db.query(Imputacion).filter(Imputacion.id == imputacion_id).first()
+    if not imputacion:
+        raise ValueError(f"Imputación {imputacion_id} no encontrada")
+
+    acopio_id = imputacion.acopio_id
+
+    db.delete(imputacion)
+    db.commit()
+
+    # Recalculate saldos based on remaining imputaciones
+    update_saldos(db, acopio_id)
+
+    return {"acopio_id": acopio_id}

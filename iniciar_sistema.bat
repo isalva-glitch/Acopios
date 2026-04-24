@@ -42,17 +42,26 @@ if not exist ".env" (
 echo Configuracion OK!
 echo.
 
-REM Detener contenedores previos si existen
-echo [3/5] Limpiando contenedores previos...
-docker-compose down >nul 2>&1
-echo Limpieza completa!
+REM Preguntar si se desea una reconstruccion limpia
+echo [3/5] Configurando modo de inicio...
+echo.
+echo OPCIONES:
+echo [1] Inicio Rapido (Recomendado - Usa contenedores existentes)
+echo [2] Reconstruccion Limpia (Lento - Reinstala dependencias)
 echo.
 
-REM Construir e iniciar los servicios
-echo [4/5] Construyendo e iniciando servicios...
-echo Esto puede tomar varios minutos la primera vez...
-echo.
-docker-compose up --build -d
+set /p OPTION="Seleccione una opcion [1-2] (Enter para Inicio Rapido): "
+
+if "%OPTION%"=="2" (
+    echo.
+    echo [4/5] Limpiando y reconstruyendo servicios...
+    docker-compose down
+    docker-compose up --build -d
+) else (
+    echo.
+    echo [4/5] Iniciando servicios en modo rapido...
+    docker-compose up -d
+)
 
 if errorlevel 1 (
     echo.
@@ -65,7 +74,7 @@ echo.
 
 REM Esperar a que los servicios esten listos
 echo [5/5] Esperando que los servicios esten listos...
-timeout /t 15 /nobreak >nul
+timeout /t 5 /nobreak >nul
 
 REM Verificar estado de los servicios
 echo.

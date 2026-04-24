@@ -1,13 +1,14 @@
 """Acopio service with business logic."""
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from models import (
     Cliente, Obra, Acopio, Presupuesto, AcopioItem, AcopioItemPano,
     Documento, ExtraccionIA, EstadoAcopio
 )
+from services.acopio_creation_service import AcopioCreationService
 
 
 def get_or_create_cliente(db: Session, nombre: str) -> Cliente:
@@ -111,9 +112,9 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
         db.add(item)
         db.flush()
         
-        # Create paños for this item
+        # Create paños for this item  (item_index is 1-based in the extractor)
         for pano_data in extraction_package.get("panos", []):
-            if pano_data.get("item_index") == idx:
+            if pano_data.get("item_index") == idx + 1:
                 pano = AcopioItemPano(
                     item_id=item.id,
                     cantidad=pano_data["cantidad"],
@@ -158,86 +159,17 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
 def create_from_spf(db: Session, spf_details: Dict[str, Any]) -> Acopio:
     """
     Create acopio from SPF database details.
-    
-    Args:
-        db: Database session for local DB
-        spf_details: Dictionary retrieved from SPF integration service
-        
-    Returns:
-        Created Acopio instance
+    DELEGATED to AcopioCreationService.
     """
-    # Get or create cliente
-    cliente_nombre = spf_details.get("cliente_nombre", "Desconocido")
-    cliente = get_or_create_cliente(db, cliente_nombre)
-    
-    # We leave obra as null or create a default one since SPF does not have 'Obra'
-    # By requirements, obra_id is nullable now.
-    
-    total_m2 = Decimal(str(spf_details.get("total_m2", 0)))
-    total_ml = Decimal(str(spf_details.get("total_ml", 0)))
-    total_pesos = Decimal(str(spf_details.get("total_pesos", 0)))
-    
-    total_unidades = sum(item.get("cantidad", 0) for item in spf_details.get("items", []))
-    
-    acopio = Acopio(
-        numero=spf_details.get("v_presupuesto_id", ""),
-        fecha_alta=date.today(),
-        estado=EstadoAcopio.ACTIVO,
-        total_m2=total_m2,
-        total_ml=total_ml,
-        total_pesos=total_pesos,
-        total_unidades=total_unidades,
-        saldo_m2=total_m2,
-        saldo_ml=total_ml,
-        saldo_pesos=total_pesos,
-        saldo_unidades=total_unidades,
-        v_presupuesto_id=spf_details.get("v_presupuesto_id"),
-        origen_datos="spf_production",
-        cliente_id=spf_details.get("cliente_id"),
-        obra_id=None
-    )
-    db.add(acopio)
-    db.flush()
-    
-    # Create items with their specific quantities and measurements
-    for item_data in spf_details.get("items", []):
-        item_m2 = Decimal(str(item_data.get("total_m2", 0)))
-        item_ml = Decimal(str(item_data.get("total_ml", 0)))
-        item_pesos = Decimal(str(item_data.get("total_pesos", 0)))
-        
-        item = AcopioItem(
-            acopio_id=acopio.id,
-            descripcion=item_data["descripcion"],
-            material="",
-            tipologia="SPF",
-            cantidad=item_data.get("cantidad", 0),
-            total_m2=item_m2,
-            total_ml=item_ml,
-            total_pesos=item_pesos,
-            saldo_m2=item_m2,
-            saldo_ml=item_ml,
-            saldo_pesos=item_pesos
-        )
-        db.add(item)
-        db.flush()
-        
-        # Create paños for this item
-        for pano_data in item_data.get("panos", []):
-            pano = AcopioItemPano(
-                item_id=item.id,
-                cantidad=pano_data["cantidad"],
-                ancho=Decimal(str(pano_data["ancho"])),
-                alto=Decimal(str(pano_data["alto"])),
-                superficie_m2=Decimal(str(pano_data["superficie_m2"])),
-                perimetro_ml=Decimal(str(pano_data["perimetro_ml"])),
-                precio_unitario=Decimal(str(pano_data["precio_unitario"])),
-                precio_total=Decimal(str(pano_data["precio_total"]))
-            )
-            db.add(pano)
-    
-    db.commit()
-    db.refresh(acopio)
-    return acopio
+    return AcopioCreationService.create_from_spf(db, spf_details)
+
+
+def create_from_pdf(db: Session, parsed_budget: Dict[str, Any]) -> Acopio:
+    """
+    Crea un acopio a partir del dict devuelto por el extractor de PDF.
+    DELEGATED to AcopioCreationService.
+    """
+    return AcopioCreationService.create_from_pdf(db, parsed_budget)
 
 
 

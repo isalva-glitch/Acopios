@@ -9,6 +9,7 @@ class AcopioItem(BaseModel):
     
     __tablename__ = "acopio_items"
     
+    numero_item = Column(Integer, nullable=True)  # PDF: número secuencial del ítem
     descripcion = Column(String(500), nullable=False)
     material = Column(String(200), nullable=True)
     tipologia = Column(String(200), nullable=True)
@@ -31,4 +32,5 @@ class AcopioItem(BaseModel):
     # Relationships
     acopio = relationship("Acopio", back_populates="items")
     panos = relationship("AcopioItemPano", back_populates="item", cascade="all, delete-orphan")
+    adicionales = relationship("AcopioItemAdicional", back_populates="item", cascade="all, delete-orphan")
     imputaciones = relationship("Imputacion", back_populates="acopio_item")

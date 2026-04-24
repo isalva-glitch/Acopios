@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     # Database
     database_url: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://acopios_user:acopios_password@localhost:5432/acopios"
+        "postgresql+psycopg://acopios_user:acopios_password@localhost:5432/acopios"
     )
     
     # JWT
@@ -34,15 +34,17 @@ class Settings(BaseSettings):
     @property
     def spf_database_url(self) -> str:
         """Get the external SPF database URL."""
-        return f"postgresql://{self.spf_db_user}:{self.spf_db_password}@{self.spf_db_host}:{self.spf_db_port}/{self.spf_db_name}"
+        return f"postgresql+psycopg://{self.spf_db_user}:{self.spf_db_password}@{self.spf_db_host}:{self.spf_db_port}/{self.spf_db_name}"
     
     # PDF Extraction
     pdf_extraction_timeout: int = 60  # seconds
     pdf_tolerance_percentage: float = 0.5  # 0.5% tolerance for totals validation
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+    model_config = {
+        "env_file": ".env",
+        "case_sensitive": False,
+        "extra": "ignore"
+    }
 
 
 settings = Settings()

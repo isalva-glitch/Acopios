@@ -116,9 +116,9 @@ function Reportes() {
                                             <td>{item.obra}</td>
                                             <td>{item.cliente}</td>
                                             <td>{item.estado}</td>
-                                            <td>{item.saldo_m2.toFixed(2)}</td>
-                                            <td>{item.saldo_ml.toFixed(2)}</td>
-                                            <td>${item.saldo_pesos.toFixed(2)}</td>
+                                            <td>{Number(item.saldo_m2).toFixed(2)}</td>
+                                            <td>{Number(item.saldo_ml).toFixed(2)}</td>
+                                            <td>${Number(item.saldo_pesos).toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -146,9 +146,9 @@ function Reportes() {
                                             <td>{item.pedido_numero}</td>
                                             <td>{item.acopio_numero}</td>
                                             <td>{item.obra}</td>
-                                            <td>{item.cantidad_m2.toFixed(2)}</td>
-                                            <td>{item.cantidad_ml.toFixed(2)}</td>
-                                            <td>${item.cantidad_pesos.toFixed(2)}</td>
+                                            <td>{Number(item.cantidad_m2).toFixed(2)}</td>
+                                            <td>{Number(item.cantidad_ml).toFixed(2)}</td>
+                                            <td>${Number(item.cantidad_pesos).toFixed(2)}</td>
                                             <td>{new Date(item.fecha).toLocaleDateString()}</td>
                                         </tr>
                                     ))}
@@ -178,7 +178,7 @@ function Reportes() {
                                             <td>{item.cliente}</td>
                                             <td>{new Date(item.fecha_vencimiento).toLocaleDateString()}</td>
                                             <td>{item.dias_restantes}</td>
-                                            <td>${item.saldo_pesos.toFixed(2)}</td>
+                                            <td>${Number(item.saldo_pesos).toFixed(2)}</td>
                                         </tr>
                                     ))}
                                 </tbody>

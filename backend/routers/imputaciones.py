@@ -84,3 +84,31 @@ async def create_imputacion(
         es_excedente=imputacion.es_excedente,
         warning=warning
     )
+
+
+@router.delete("/{imputacion_id}")
+async def anular_imputacion(
+    imputacion_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Anula (elimina) una imputación y recalcula los saldos del acopio afectado.
+    """
+    try:
+        result = imputacion_service.anular_imputacion(db, imputacion_id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al anular imputación: {str(e)}"
+        )
+
+    return {
+        "success": True,
+        "message": f"Imputación {imputacion_id} anulada correctamente.",
+        "acopio_id": result["acopio_id"]
+    }

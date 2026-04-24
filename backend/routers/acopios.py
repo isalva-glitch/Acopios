@@ -9,6 +9,7 @@ from database import get_db
 from models import Acopio
 from storage import save_file
 from extraction import extract_standard_budget_pdf
+from integrations.pdf import extract_budget_pdf, parsed_budget_to_dict
 from services import acopio_service
 from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
@@ -20,7 +21,7 @@ router = APIRouter()
 class AcopioPreview(BaseModel):
     """Preview of extraction before confirmation."""
     extraction_package: dict
-    warnings: List[dict]
+    warnings: List[str]
     
     class Config:
         from_attributes = True
@@ -36,20 +37,42 @@ class AcopioConfirm(BaseModel):
     extraction_package: dict
 
 
+class AcopioTotals(BaseModel):
+    cantidad: int
+    m2: float
+    ml: float
+    importe: float
+
+class AcopioCreationResult(BaseModel):
+    success: bool
+    source: str
+    acopio_id: int
+    presupuesto_id: Optional[int] = None
+    numero_presupuesto: Optional[str] = None
+    cliente: Optional[str] = None
+    totals: AcopioTotals
+    items_count: int
+    panos_count: int
+    warnings: List[str] = []
+
+    class Config:
+        from_attributes = True
+
+
 class AcopioResponse(BaseModel):
-    """Acopio response."""
+    """Acopio response for list and other general views."""
     id: int
-    numero: str
-    obra_id: Optional[int]
+    numero: Optional[str] = None
+    obra_id: Optional[int] = None
     fecha_alta: str
     estado: str
-    total_m2: Decimal
-    total_ml: Decimal
-    total_pesos: Decimal
+    total_m2: float
+    total_ml: float
+    total_pesos: float
     total_unidades: int
-    saldo_m2: Decimal
-    saldo_ml: Decimal
-    saldo_pesos: Decimal
+    saldo_m2: float
+    saldo_ml: float
+    saldo_pesos: float
     saldo_unidades: int
     
     class Config:
@@ -76,9 +99,10 @@ async def upload_pdf(
     # Save file
     file_hash, file_path = await save_file(file)
     
-    # Extract data
+    # Extract data using the new specialized Fontela extractor
     try:
-        extraction_package = extract_standard_budget_pdf(str(file_path))
+        budget = extract_budget_pdf(str(file_path))
+        extraction_package = parsed_budget_to_dict(budget)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -89,6 +113,54 @@ async def upload_pdf(
         extraction_package=extraction_package,
         warnings=extraction_package.get("warnings", [])
     )
+
+
+@router.post("/confirm-pdf", response_model=AcopioCreationResult)
+async def confirm_acopio_pdf(
+    payload: AcopioConfirm,
+    db: Session = Depends(get_db)
+):
+    """
+    Confirm and create acopio from the new PDF extraction package.
+    """
+    try:
+        # Check for duplicates
+        budget_no = payload.extraction_package.get("presupuesto", {}).get("numero")
+        if budget_no:
+            existing = db.query(Acopio).filter(Acopio.numero == budget_no).first()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Ya existe un acopio para el presupuesto {budget_no}"
+                )
+
+        acopio = acopio_service.create_from_pdf(db, payload.extraction_package)
+        
+        # Calculate pano count (sum of quantities, not sum of rows)
+        panos_count = sum(p.cantidad for item in acopio.items for p in item.panos)
+        
+        return AcopioCreationResult(
+            success=True,
+            source="pdf",
+            acopio_id=acopio.id,
+            presupuesto_id=acopio.presupuestos[0].id if acopio.presupuestos else None,
+            numero_presupuesto=acopio.numero,
+            cliente=acopio.obra.cliente.nombre if acopio.obra and acopio.obra.cliente else "Desconocido",
+            totals=AcopioTotals(
+                cantidad=acopio.total_unidades,
+                m2=acopio.total_m2,
+                ml=acopio.total_ml,
+                importe=acopio.total_pesos
+            ),
+            items_count=len(acopio.items),
+            panos_count=panos_count,
+            warnings=[] # Warnings could be passed from the payload if needed
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create acopio from PDF: {str(e)}"
+        )
 
 
 @router.post("/confirm", response_model=AcopioResponse)
@@ -111,20 +183,20 @@ async def confirm_acopio(
         id=acopio.id,
         numero=acopio.numero,
         obra_id=acopio.obra_id,
-        fecha_alta=acopio.fecha_alta.isoformat(),
-        estado=acopio.estado.value,
-        total_m2=acopio.total_m2,
-        total_ml=acopio.total_ml,
-        total_pesos=acopio.total_pesos,
-        total_unidades=acopio.total_unidades,
-        saldo_m2=acopio.saldo_m2,
-        saldo_ml=acopio.saldo_ml,
-        saldo_pesos=acopio.saldo_pesos,
-        saldo_unidades=acopio.saldo_unidades
+        fecha_alta=acopio.fecha_alta.isoformat() if acopio.fecha_alta else "",
+        estado=acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
+        total_m2=acopio.total_m2 or Decimal('0'),
+        total_ml=acopio.total_ml or Decimal('0'),
+        total_pesos=acopio.total_pesos or Decimal('0'),
+        total_unidades=acopio.total_unidades or 0,
+        saldo_m2=acopio.saldo_m2 or Decimal('0'),
+        saldo_ml=acopio.saldo_ml or Decimal('0'),
+        saldo_pesos=acopio.saldo_pesos or Decimal('0'),
+        saldo_unidades=acopio.saldo_unidades or 0
     )
 
 
-@router.post("/from-spf", response_model=AcopioResponse)
+@router.post("/from-spf", response_model=AcopioCreationResult)
 async def create_acopio_from_spf(
     payload: AcopioConfirmSpf,
     db: Session = Depends(get_db),
@@ -138,7 +210,39 @@ async def create_acopio_from_spf(
         if not details:
             raise HTTPException(status_code=404, detail="Presupuesto no encontrado en SPF")
             
+        # Check for duplicates
+        existing = db.query(Acopio).filter(
+            (Acopio.v_presupuesto_id == payload.v_presupuesto_id) | 
+            (Acopio.numero == payload.v_presupuesto_id)
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Ya existe un acopio para el presupuesto {payload.v_presupuesto_id}"
+            )
+
         acopio = acopio_service.create_from_spf(db, details)
+
+        # Calculate pano count
+        panos_count = sum(p.cantidad for item in acopio.items for p in item.panos)
+        
+        return AcopioCreationResult(
+            success=True,
+            source="spf",
+            acopio_id=acopio.id,
+            presupuesto_id=acopio.presupuestos[0].id if acopio.presupuestos else None,
+            numero_presupuesto=acopio.numero,
+            cliente=acopio.obra.cliente.nombre if acopio.obra and acopio.obra.cliente else "Desconocido",
+            totals=AcopioTotals(
+                cantidad=acopio.total_unidades,
+                m2=acopio.total_m2,
+                ml=acopio.total_ml,
+                importe=acopio.total_pesos
+            ),
+            items_count=len(acopio.items),
+            panos_count=panos_count,
+            warnings=[]
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -146,22 +250,6 @@ async def create_acopio_from_spf(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create acopio from SPF: {str(e)}"
         )
-        
-    return AcopioResponse(
-        id=acopio.id,
-        numero=acopio.numero or "",
-        obra_id=acopio.obra_id,
-        fecha_alta=acopio.fecha_alta.isoformat(),
-        estado=acopio.estado.value,
-        total_m2=acopio.total_m2,
-        total_ml=acopio.total_ml,
-        total_pesos=acopio.total_pesos,
-        total_unidades=acopio.total_unidades,
-        saldo_m2=acopio.saldo_m2,
-        saldo_ml=acopio.saldo_ml,
-        saldo_pesos=acopio.saldo_pesos,
-        saldo_unidades=acopio.saldo_unidades
-    )
 
 
 @router.get("", response_model=List[AcopioResponse])
@@ -186,16 +274,16 @@ async def list_acopios(
             id=a.id,
             numero=a.numero,
             obra_id=a.obra_id,
-            fecha_alta=a.fecha_alta.isoformat(),
-            estado=a.estado.value,
-            total_m2=a.total_m2,
-            total_ml=a.total_ml,
-            total_pesos=a.total_pesos,
-            total_unidades=a.total_unidades,
-            saldo_m2=a.saldo_m2,
-            saldo_ml=a.saldo_ml,
-            saldo_pesos=a.saldo_pesos,
-            saldo_unidades=a.saldo_unidades
+            fecha_alta=a.fecha_alta.isoformat() if a.fecha_alta else "",
+            estado=a.estado.value if hasattr(a.estado, 'value') else str(a.estado),
+            total_m2=a.total_m2 or Decimal('0'),
+            total_ml=a.total_ml or Decimal('0'),
+            total_pesos=a.total_pesos or Decimal('0'),
+            total_unidades=a.total_unidades or 0,
+            saldo_m2=a.saldo_m2 or Decimal('0'),
+            saldo_ml=a.saldo_ml or Decimal('0'),
+            saldo_pesos=a.saldo_pesos or Decimal('0'),
+            saldo_unidades=a.saldo_unidades or 0
         )
         for a in acopios
     ]
@@ -222,32 +310,32 @@ async def get_acopio_detail(
             "id": acopio.obra.id,
             "nombre": acopio.obra.nombre,
             "cliente": {
-                "id": acopio.obra.cliente.id,
-                "nombre": acopio.obra.cliente.nombre
+                "id": acopio.obra.cliente.id if acopio.obra.cliente else None,
+                "nombre": acopio.obra.cliente.nombre if acopio.obra.cliente else "Desconocido"
             }
         } if acopio.obra else None,
         "cliente_id": acopio.cliente_id,
         "origen_datos": acopio.origen_datos,
         "v_presupuesto_id": acopio.v_presupuesto_id,
-        "fecha_alta": acopio.fecha_alta.isoformat(),
-        "estado": acopio.estado.value,
+        "fecha_alta": acopio.fecha_alta.isoformat() if acopio.fecha_alta else None,
+        "estado": acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
         "totals": {
-            "m2": float(acopio.total_m2),
-            "ml": float(acopio.total_ml),
-            "pesos": float(acopio.total_pesos),
-            "unidades": acopio.total_unidades
+            "m2": float(acopio.total_m2 or 0),
+            "ml": float(acopio.total_ml or 0),
+            "pesos": float(acopio.total_pesos or 0),
+            "unidades": acopio.total_unidades or 0
         },
         "saldos": {
-            "m2": float(acopio.saldo_m2),
-            "ml": float(acopio.saldo_ml),
-            "pesos": float(acopio.saldo_pesos),
-            "unidades": acopio.saldo_unidades
+            "m2": float(acopio.saldo_m2 or 0),
+            "ml": float(acopio.saldo_ml or 0),
+            "pesos": float(acopio.saldo_pesos or 0),
+            "unidades": acopio.saldo_unidades or 0
         },
         "presupuestos": [
             {
                 "id": p.id,
                 "numero": p.numero,
-                "fecha": p.fecha.isoformat()
+                "fecha": p.fecha.isoformat() if p.fecha else None
             }
             for p in acopio.presupuestos
         ],
@@ -259,27 +347,39 @@ async def get_acopio_detail(
                 "tipologia": item.tipologia,
                 "cantidad": item.cantidad,
                 "totals": {
-                    "m2": float(item.total_m2),
-                    "ml": float(item.total_ml),
-                    "pesos": float(item.total_pesos),
-                    "unidades": item.cantidad
+                    "m2": float(item.total_m2 or 0),
+                    "ml": float(item.total_ml or 0),
+                    "pesos": float(item.total_pesos or 0),
+                    "unidades": item.cantidad or 0
                 },
                 "saldos": {
-                    "m2": float(item.saldo_m2),
-                    "ml": float(item.saldo_ml),
-                    "pesos": float(item.saldo_pesos),
-                    "unidades": item.saldo_cantidad
+                    "m2": float(item.saldo_m2 or 0),
+                    "ml": float(item.saldo_ml or 0),
+                    "pesos": float(item.saldo_pesos or 0),
+                    "unidades": item.saldo_cantidad or 0
                 },
                 "panos": [
                     {
                         "id": pano.id,
-                        "cantidad": pano.cantidad,
-                        "ancho": float(pano.ancho),
-                        "alto": float(pano.alto),
-                        "superficie_m2": float(pano.superficie_m2),
-                        "perimetro_ml": float(pano.perimetro_ml)
+                        "cantidad": pano.cantidad or 1,
+                        "ancho": float(pano.ancho or 0),
+                        "alto": float(pano.alto or 0),
+                        "superficie_m2": float(pano.superficie_m2 or 0),
+                        "perimetro_ml": float(pano.perimetro_ml or 0)
                     }
                     for pano in item.panos
+                ],
+                "adicionales": [
+                    {
+                        "id": adc.id,
+                        "cantidad": adc.cantidad or 1,
+                        "descripcion": adc.descripcion,
+                        "precio_unitario": float(adc.precio_unitario or 0),
+                        "precio_total": float(adc.precio_total or 0),
+                        "tipo": adc.tipo,
+                        "origen": adc.origen
+                    }
+                    for adc in item.adicionales
                 ]
             }
             for item in acopio.items
@@ -289,11 +389,11 @@ async def get_acopio_detail(
                 "id": imp.id,
                 "pedido_id": imp.pedido_id,
                 "pedido_numero": imp.pedido.numero if imp.pedido else None,
-                "cantidad_m2": float(imp.cantidad_m2),
-                "cantidad_ml": float(imp.cantidad_ml),
-                "cantidad_pesos": float(imp.cantidad_pesos),
-                "cantidad_unidades": imp.cantidad_unidades,
-                "es_excedente": imp.es_excedente
+                "cantidad_m2": float(imp.cantidad_m2 or 0),
+                "cantidad_ml": float(imp.cantidad_ml or 0),
+                "cantidad_pesos": float(imp.cantidad_pesos or 0),
+                "cantidad_unidades": imp.cantidad_unidades or 0,
+                "es_excedente": imp.es_excedente or False
             }
             for imp in acopio.imputaciones
         ]

@@ -30,16 +30,17 @@ def search_presupuestos(db: Session, query: str):
 
     # Search by v_presupuesto_id directly in the items
     items_query = db.query(SpfItem.v_presupuesto_id).filter(
-        SpfItem.v_presupuesto_id.ilike(f"%{query}%")
+        cast(SpfItem.v_presupuesto_id, String).ilike(f"%{query}%")
     ).distinct()
     
     # Or by matching nro_pedido in the pedidos
     pedidos_query = db.query(SpfItem.v_presupuesto_id).join(SpfPedido, SpfItem.pedido_id == SpfPedido.id).filter(
-        SpfPedido.nro_pedido.ilike(f"%{query}%")
+        cast(SpfPedido.nro_pedido, String).ilike(f"%{query}%")
     ).distinct()
 
     results = items_query.union(pedidos_query).limit(20).all()
-    return [r[0] for r in results if r[0]]
+    # Apply zfill to 9 for the returned results to match local system expectations
+    return [str(r[0]).zfill(9) for r in results if r[0]]
 
 
 def get_presupuesto_details(db: Session, v_presupuesto_id: str):
@@ -47,7 +48,10 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
     Get full details and aggregates for a given v_presupuesto_id.
     Calculates m2, ml, and pesos based on items, medidas, and complementos.
     """
-    items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == v_presupuesto_id).all()
+    # Local system uses "000209205" but SPF uses integer 209205. If numeric, strip zeros or parse int.
+    search_id = int(v_presupuesto_id) if v_presupuesto_id.isdigit() else v_presupuesto_id
+
+    items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == search_id).all()
     
     if not items:
         return None
@@ -95,11 +99,19 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
                 "precio_unitario": tot / qty if qty > 0 else 0.0
             })
             
+        adicionales_out = []
         for comp in item.complementos:
             qty = comp.cantidad or 1
-            # Complementos don't add to paños directly, but they sum to the item's total
-            tot_comp = float(comp.total_complemento or 0)
+            unit_price = float(comp.total_complemento or 0)
+            tot_comp = unit_price * qty
             item_total_pesos += tot_comp
+            
+            adicionales_out.append({
+                "cantidad": qty,
+                "descripcion": f"Complemento {comp.v_complemento_id}", # Or lookup name if needed
+                "precio_total": tot_comp,
+                "precio_unitario": unit_price
+            })
 
         items_out.append({
             "descripcion": item.descripcion or f"Item {item.id}",
@@ -107,7 +119,8 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
             "total_m2": item_total_m2,
             "total_ml": item_total_ml,
             "total_pesos": item_total_pesos,
-            "panos": panos_out
+            "panos": panos_out,
+            "adicionales": adicionales_out
         })
         
         total_m2 += item_total_m2
@@ -245,7 +258,8 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
             # Item Complementos
             for comp in it.complementos:
                 qty = comp.cantidad or 1
-                tot = float(comp.total_complemento or 0)
+                unit_price = float(comp.total_complemento or 0)
+                tot = unit_price * qty
                 desc = complement_names.get(comp.v_complemento_id, f"Complemento {comp.v_complemento_id}")
                 
                 pf, pr, comps = get_line_progress(comp.id, 'SpfPedido::ItemComplemento', float(qty))
@@ -255,7 +269,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
                     "descripcion": desc,
                     "cantidad": qty,
                     "importe_total": tot,
-                    "precio_unitario": tot / qty if qty > 0 else 0,
+                    "precio_unitario": unit_price,
                     "avance_facturado": pf,
                     "avance_remitido": pr,
                     "comprobantes": comps
@@ -347,8 +361,10 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
             total_qty += (med.cantidad or 0)
             
         for comp in it.complementos:
-            total_pesos += float(comp.total_complemento or 0)
-            total_qty += (comp.cantidad or 0)
+            qty = comp.cantidad or 1
+            unit_price = float(comp.total_complemento or 0)
+            total_pesos += unit_price * qty
+            # The units of adicionales should NOT count towards physical units consumed
 
     # Resolve issuing company
     talonarios = db.query(SpfComprobanteTemp.talonario).filter(

@@ -1,5 +1,5 @@
 """AcopioItemPano model."""
-from sqlalchemy import Column, Integer, ForeignKey, Numeric
+from sqlalchemy import Column, String, Integer, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
 from models.base import BaseModel
 
@@ -16,6 +16,7 @@ class AcopioItemPano(BaseModel):
     perimetro_ml = Column(Numeric(12, 2), nullable=False)
     precio_unitario = Column(Numeric(15, 2), nullable=True)
     precio_total = Column(Numeric(15, 2), nullable=True)
+    denominacion = Column(String(50), nullable=True)  # PDF: PV1, PA1, PFA1, etc.
     
     # Foreign keys
     item_id = Column(Integer, ForeignKey("acopio_items.id"), nullable=False)

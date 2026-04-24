@@ -22,6 +22,7 @@ router = APIRouter()
 class PedidoConfirmSpf(BaseModel):
     """Confirmation payload for SPF imputation."""
     nro_pedido: str
+    acopio_id: Optional[int] = None
 
 
 # Pydantic models
@@ -47,9 +48,9 @@ class PedidoResponse(BaseModel):
     obra_id: int
     fecha: str
     estado: str
-    total_m2: Decimal
-    total_ml: Decimal
-    total_pesos: Decimal
+    total_m2: float
+    total_ml: float
+    total_pesos: float
     
     class Config:
         from_attributes = True
@@ -114,11 +115,11 @@ async def confirm_pedido(
         id=pedido.id,
         numero=pedido.numero,
         obra_id=pedido.obra_id,
-        fecha=pedido.fecha.isoformat(),
-        estado=pedido.estado.value,
-        total_m2=pedido.total_m2,
-        total_ml=pedido.total_ml,
-        total_pesos=pedido.total_pesos
+        fecha=pedido.fecha.isoformat() if pedido.fecha else "",
+        estado=pedido.estado.value if hasattr(pedido.estado, 'value') else str(pedido.estado),
+        total_m2=pedido.total_m2 or Decimal('0'),
+        total_ml=pedido.total_ml or Decimal('0'),
+        total_pesos=pedido.total_pesos or Decimal('0')
     )
 
 
@@ -144,11 +145,11 @@ async def list_pedidos(
             id=p.id,
             numero=p.numero,
             obra_id=p.obra_id,
-            fecha=p.fecha.isoformat(),
-            estado=p.estado.value,
-            total_m2=p.total_m2,
-            total_ml=p.total_ml,
-            total_pesos=p.total_pesos
+            fecha=p.fecha.isoformat() if p.fecha else "",
+            estado=p.estado.value if hasattr(p.estado, 'value') else str(p.estado),
+            total_m2=p.total_m2 or Decimal('0'),
+            total_ml=p.total_ml or Decimal('0'),
+            total_pesos=p.total_pesos or Decimal('0')
         )
         for p in pedidos
     ]
@@ -175,18 +176,18 @@ async def get_pedido_detail(
             "id": pedido.obra.id,
             "nombre": pedido.obra.nombre
         },
-        "fecha": pedido.fecha.isoformat(),
-        "estado": pedido.estado.value,
+        "fecha": pedido.fecha.isoformat() if pedido.fecha else None,
+        "estado": pedido.estado.value if hasattr(pedido.estado, 'value') else str(pedido.estado),
         "totals": {
-            "m2": float(pedido.total_m2),
-            "ml": float(pedido.total_ml),
-            "pesos": float(pedido.total_pesos)
+            "m2": float(pedido.total_m2 or 0),
+            "ml": float(pedido.total_ml or 0),
+            "pesos": float(pedido.total_pesos or 0)
         },
         "remitos": [
             {
                 "id": r.id,
                 "numero": r.numero,
-                "fecha": r.fecha.isoformat()
+                "fecha": r.fecha.isoformat() if r.fecha else None
             }
             for r in pedido.remitos
         ],
@@ -194,10 +195,10 @@ async def get_pedido_detail(
             {
                 "id": imp.id,
                 "acopio_id": imp.acopio_id,
-                "cantidad_m2": float(imp.cantidad_m2),
-                "cantidad_ml": float(imp.cantidad_ml),
-                "cantidad_pesos": float(imp.cantidad_pesos),
-                "es_excedente": imp.es_excedente
+                "cantidad_m2": float(imp.cantidad_m2 or 0),
+                "cantidad_ml": float(imp.cantidad_ml or 0),
+                "cantidad_pesos": float(imp.cantidad_pesos or 0),
+                "es_excedente": imp.es_excedente or False
             }
             for imp in pedido.imputaciones
         ]
@@ -218,16 +219,22 @@ async def create_pedido_from_spf(
     if not spf_pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado en SPF")
     
-    if not spf_pedido["v_presupuesto_id"]:
-        raise HTTPException(status_code=400, detail="El pedido no está vinculado a un presupuesto en SPF")
-        
     # 2. Find local Acopio (Budget holder)
-    acopio = db.query(Acopio).filter(Acopio.v_presupuesto_id == spf_pedido["v_presupuesto_id"]).first()
-    if not acopio:
-        raise HTTPException(
-            status_code=404, 
-            detail=f"No se encontró un acopio local (presupuesto {spf_pedido['v_presupuesto_id']}) para este pedido."
-        )
+    acopio = None
+    if payload.acopio_id:
+        acopio = db.query(Acopio).filter(Acopio.id == payload.acopio_id).first()
+        if not acopio:
+            raise HTTPException(status_code=404, detail="Acopio objetivo no encontrado")
+    else:
+        if not spf_pedido["v_presupuesto_id"]:
+            raise HTTPException(status_code=400, detail="El pedido no está vinculado a un presupuesto en SPF y no se especificó un acopio objetivo.")
+            
+        acopio = db.query(Acopio).filter(Acopio.v_presupuesto_id == spf_pedido["v_presupuesto_id"]).first()
+        if not acopio:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No se encontró un acopio local (presupuesto {spf_pedido['v_presupuesto_id']}) para este pedido. Debe especificar el acopio manualmente."
+            )
         
     # 3. Find or Create local Pedido (Execution Record)
     # We use SPF ID or nro_pedido as unique reference to avoid double imputation
@@ -279,9 +286,9 @@ async def create_pedido_from_spf(
         id=local_pedido.id,
         numero=local_pedido.numero,
         obra_id=local_pedido.obra_id or 0,
-        fecha=local_pedido.fecha.isoformat(),
-        estado=local_pedido.estado if hasattr(local_pedido.estado, 'value') else str(local_pedido.estado),
-        total_m2=local_pedido.total_m2,
-        total_ml=local_pedido.total_ml,
-        total_pesos=local_pedido.total_pesos
+        fecha=local_pedido.fecha.isoformat() if local_pedido.fecha else "",
+        estado=local_pedido.estado.value if hasattr(local_pedido.estado, 'value') else str(local_pedido.estado),
+        total_m2=local_pedido.total_m2 or Decimal('0'),
+        total_ml=local_pedido.total_ml or Decimal('0'),
+        total_pesos=local_pedido.total_pesos or Decimal('0')
     )

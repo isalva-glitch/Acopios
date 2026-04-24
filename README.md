@@ -15,9 +15,10 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 ## Características Principales
 
 - ✅ Alta de acopios desde PDF estándar con extracción automática de datos
-- ✅ Control de consumo por m², ml y pesos
-- ✅ Gestión de pedidos y remitos
+- ✅ Control de consumo por m², ml y pesos (separando datos físicos de económicos)
+- ✅ Gestión de pedidos y remitos (integración directa con base de datos SPF)
 - ✅ Imputación de consumos con control de excedentes
+- ✅ Anulación de imputaciones con recálculo automático de saldos
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
 - ✅ Reportes de acopios activos, excedentes y vencimientos
 - ✅ Validación automática con warnings
@@ -87,6 +88,7 @@ Acopios/
 
 ### Imputaciones
 - `POST /imputaciones` - Imputar consumo contra acopio
+- `DELETE /imputaciones/{id}` - Anular imputación y restaurar saldos acopio
 
 ### Reportes
 - `GET /reportes/acopios-activos` - Acopios con saldo
