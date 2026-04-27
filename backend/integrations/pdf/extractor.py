@@ -5,6 +5,8 @@ multi-line descriptions and complex layouts.
 """
 from __future__ import annotations
 
+import logging
+import os
 import re
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
@@ -12,6 +14,9 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import pdfplumber
+
+logger = logging.getLogger(__name__)
+DEBUG_DETAIL_PARSE = os.getenv("PDF_EXTRACTOR_DEBUG", "").lower() in {"1", "true", "yes", "on"}
 
 
 # ─── helpers numéricos ──────────────────────────────────────────────────────
@@ -80,6 +85,7 @@ class PdfItem:
     total_ml: Decimal = Decimal("0")
     panos: List[PdfPane] = field(default_factory=list)
     adicionales: List[PdfAdicional] = field(default_factory=list)
+    incompleto: bool = False
 
 
 @dataclass
@@ -299,140 +305,275 @@ def _parse_consolidated(page1) -> List[PdfItem]:
 
 
 def _parse_detailed_all_pages(pdf, items: List[PdfItem]):
-    """Itera sobre todas las tablas de paños y las asocia a los ítems maestros."""
+    """Itera sobre todas las páginas y combina parsing por tablas + texto."""
     item_map = {it.numero_item: it for it in items}
-    
     current_item_no = None
-    
-    for page in pdf.pages:
-        # Obtenemos tablas con coordenadas
+    seen_panos: set[tuple] = set()
+    subtotal_found: set[int] = set()
+
+    for page_idx, page in enumerate(pdf.pages, start=1):
+        rows_from_tables = 0
+        rows_from_text = 0
+        rows_omitted = 0
+        page_text = page.extract_text() or ""
+        page_lines = [ln.strip() for ln in page_text.splitlines() if ln.strip()]
+
+        # Pista visual: si al inicio de la página aparece encabezado de ítem,
+        # actualizar estado antes de parsear tablas.
+        for probe_line in page_lines[:8]:
+            maybe_item = _detect_item_start(probe_line, item_map, None)
+            if maybe_item is not None:
+                current_item_no = maybe_item
+                break
+
+        # A) Parsing por tablas
         table_objs = page.find_tables()
         for t_obj in table_objs:
             data = t_obj.extract()
-            if not data or not data[0]: continue
-            
+            if not data or not data[0]:
+                continue
+
             headers = [str(h).lower() if h else "" for h in data[0]]
-            
-            # 1. CASO: Tabla de Paños (Detallada)
+
             if "ancho" in headers and "alto" in headers:
-                # Buscar el número de ítem arriba de la tabla
-                # Registramos el texto de un área mayor (hasta 100 pixels arriba)
                 top = t_obj.bbox[1]
-                # Buscamos en una ventana sobre la tabla
                 above_area = (0, max(0, top - 100), page.width, top)
                 above_text = page.within_bbox(above_area).extract_text() or ""
-                
-                # Buscamos el patrón "Nro_Item Descripcion" (ej: "2 Laminado...")
-                # O simplemente el número más cercano al encabezado de la tabla
-                lines = [ln.strip() for ln in above_text.splitlines() if ln.strip()]
-                found_new_item = False
-                for ln in reversed(lines):
-                    m = re.match(r"^(\d+)\s+", ln)
-                    if m:
-                        possible_no = int(m.group(1))
-                        if possible_no in item_map:
-                            current_item_no = possible_no
-                            found_new_item = True
-                            break
-                    # Caso donde el número está solo en la línea
-                    if ln.isdigit():
-                        possible_no = int(ln)
-                        if possible_no in item_map:
-                            current_item_no = possible_no
-                            found_new_item = True
-                            break
-                
+                current_item_no = _detect_item_start(above_text, item_map, current_item_no)
                 if current_item_no is None:
                     continue
-                
+
                 target_item = item_map[current_item_no]
-                
-                # Extraer filas
                 for row in data[1:]:
-                    if not row or not any(row): continue
-                    if "Totales" in str(row[0]):
-                        # Capturar subtotales de la fila si están presentes
-                        if len(row) >= 5:
-                            if q2(parse_ar(row[3])) > 0: target_item.total_m2 = parse_ar(row[3])
-                            if q2(parse_ar(row[4])) > 0: target_item.total_ml = parse_ar(row[4])
+                    if not row or not any(row):
                         continue
-                    
-                    # Ignorar filas de encabezado repetidas (page breaks)
-                    if "cantidad" in str(row[0]).lower(): continue
-                    
-                    try:
-                        cant = int(parse_ar(row[0]))
-                        if cant <= 0:
-                            continue
-                            
-                        # Intentar parsear dimensiones
-                        ancho = 0
-                        alto = 0
-                        try:
-                            ancho = int(parse_ar(row[1]))
-                            alto = int(parse_ar(row[2]))
-                        except (ValueError, IndexError):
-                            pass
-                            
-                        if ancho > 0 and alto > 0:
-                            # Es un PAÑO productivo
-                            target_item.panos.append(PdfPane(
-                                row_no=len(target_item.panos) + 1,
-                                cantidad=cant,
-                                ancho_mm=ancho,
-                                alto_mm=alto,
-                                superficie_m2=parse_ar(row[3]) if len(row) > 3 else Decimal("0"),
-                                perimetro_ml=parse_ar(row[4]) if len(row) > 4 else Decimal("0"),
-                                denominacion=str(row[5]).strip() if len(row) > 5 and row[5] and str(row[5]) != "-" else None,
-                                precio_unitario=parse_ar(row[6]) if len(row) > 6 else Decimal("0"),
-                                precio_total=parse_ar(row[7]) if len(row) > 7 else Decimal("0")
-                            ))
-                        else:
-                            # Es un ADICIONAL o SERVICIO
-                            desc = str(row[1]).strip() if len(row) > 1 and row[1] else ""
-                            # Algunos PDFs tienen el nombre de la pieza (Laminado...) sin medidas. Si es el nombre del ítem, lo ignoramos para evitar duplicar.
-                            # Pero si tiene precios al final, probablemente es un adicional facturable.
-                            if not desc or desc == "-":
-                                continue
-                                
-                            p_tot = Decimal("0")
-                            p_uni = Decimal("0")
-                            
-                            non_empty = [c for c in row if c and str(c).strip() and str(c).strip() != "-"]
-                            if len(non_empty) >= 3:
-                                try:
-                                    p_tot = parse_ar(non_empty[-1])
-                                    p_uni = parse_ar(non_empty[-2])
-                                except ValueError:
-                                    pass
-                                    
-                            # Solo lo agregamos si tiene impacto económico para evitar capturar títulos descriptivos como adicionales
-                            if p_tot > 0 or p_uni > 0:
-                                target_item.adicionales.append(PdfAdicional(
-                                    row_no=len(target_item.adicionales) + 1,
-                                    cantidad=cant,
-                                    descripcion=desc,
-                                    precio_unitario=p_uni,
-                                    precio_total=p_tot
-                                ))
-                    except (ValueError, IndexError):
+                    row_text = " ".join(str(c).strip() for c in row if c).strip()
+                    maybe_item = _detect_item_start(row_text, item_map, None)
+                    if maybe_item is not None:
+                        current_item_no = maybe_item
+                        target_item = item_map[current_item_no]
+
+                    subtotal = _parse_subtotal_line(row_text)
+                    if subtotal and current_item_no in item_map:
+                        qty, subtotal_m2, subtotal_pesos = subtotal
+                        target_item.cantidad = target_item.cantidad or qty
+                        if subtotal_m2 > 0:
+                            target_item.total_m2 = subtotal_m2
+                        if subtotal_pesos > 0:
+                            target_item.total_pesos = subtotal_pesos
+                        subtotal_found.add(current_item_no)
                         continue
 
-            # 2. CASO: Tabla de Totales (a veces viene separada)
-            elif any("totales" in str(c).lower() for c in data[0]):
-                if current_item_no and current_item_no in item_map:
-                    # Si la fila actual es "Totales" o la siguiente lo es
-                    target_item = item_map[current_item_no]
-                    for row in data:
-                        if any("totales" in str(c).lower() for c in row) or (len(row) >= 4 and parse_ar(row[2]) > 0):
-                            if len(row) >= 4:
-                                val_m2 = parse_ar(row[2])
-                                val_ml = parse_ar(row[3])
-                                if val_m2 > 0: target_item.total_m2 = val_m2
-                                if val_ml > 0: target_item.total_ml = val_ml
-                            if len(row) >= 6: # A veces el total $ está más a la derecha
-                                val_pesos = parse_ar(row[5])
-                                if val_pesos > 0: target_item.total_pesos = val_pesos
+                    pane = _parse_pane_from_cells(row)
+                    if pane and current_item_no in item_map:
+                        if _append_pane_if_new(item_map[current_item_no], pane, current_item_no, seen_panos):
+                            rows_from_tables += 1
+                        else:
+                            rows_omitted += 1
+                        continue
+
+                    adicional = _parse_adicional_from_cells(row)
+                    if adicional and current_item_no in item_map:
+                        _append_adicional(item_map[current_item_no], adicional)
+                        rows_from_tables += 1
+
+        # B) Parsing por texto completo
+        for line in page_lines:
+            maybe_item = _detect_item_start(line, item_map, None)
+            if maybe_item is not None:
+                current_item_no = maybe_item
+
+            subtotal = _parse_subtotal_line(line)
+            if subtotal and current_item_no in item_map:
+                qty, subtotal_m2, subtotal_pesos = subtotal
+                target_item = item_map[current_item_no]
+                target_item.cantidad = target_item.cantidad or qty
+                if subtotal_m2 > 0:
+                    target_item.total_m2 = subtotal_m2
+                if subtotal_pesos > 0:
+                    target_item.total_pesos = subtotal_pesos
+                subtotal_found.add(current_item_no)
+                continue
+
+            pane = _parse_pane_from_text(line)
+            if pane and current_item_no in item_map:
+                if _append_pane_if_new(item_map[current_item_no], pane, current_item_no, seen_panos):
+                    rows_from_text += 1
+                else:
+                    rows_omitted += 1
+                continue
+
+            adicional = _parse_adicional_from_text(line)
+            if adicional and current_item_no in item_map:
+                _append_adicional(item_map[current_item_no], adicional)
+                rows_from_text += 1
+
+        if DEBUG_DETAIL_PARSE:
+            logger.debug(
+                "[pdf-detail] página=%s item_actual=%s tablas=%s texto=%s omitidas=%s",
+                page_idx,
+                current_item_no,
+                rows_from_tables,
+                rows_from_text,
+                rows_omitted,
+            )
+
+    if DEBUG_DETAIL_PARSE and item_map:
+        for item_no in sorted(item_map):
+            logger.debug(
+                "[pdf-detail] item=%s subtotal_detectado=%s panos=%s adicionales=%s",
+                item_no,
+                item_no in subtotal_found,
+                len(item_map[item_no].panos),
+                len(item_map[item_no].adicionales),
+            )
+
+
+PANE_TEXT_RE = re.compile(
+    r"^\s*(\d+)\s+(\d{2,5})\s+(\d{2,5})\s+([\d\.,]+)\s+([\d\.,]+)\s+([A-Za-z0-9_\-/.]+)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$"
+)
+ADICIONAL_TEXT_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$")
+SUBTOTAL_RE = re.compile(r"^\s*(\d+)\s+paños?\s+([\d\.,]+)\s+[\d\.,]+\s+\$?\s*([\d\.,]+)\s*$", re.IGNORECASE)
+
+
+def _detect_item_start(text: str, item_map: Dict[int, PdfItem], default: Optional[int]) -> Optional[int]:
+    line = (text or "").strip()
+    if not line:
+        return default
+    if "$" in line:
+        return default
+    if _parse_subtotal_line(line):
+        return default
+
+    m = re.match(r"^(\d+)\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", line)
+    if m:
+        item_no = int(m.group(1))
+        if item_no in item_map:
+            return item_no
+    if line.isdigit():
+        item_no = int(line)
+        if item_no in item_map:
+            return item_no
+    return default
+
+
+def _parse_subtotal_line(line: str) -> Optional[tuple[int, Decimal, Decimal]]:
+    m = SUBTOTAL_RE.match((line or "").strip())
+    if not m:
+        return None
+    return int(m.group(1)), parse_ar(m.group(2)), parse_ar(m.group(3))
+
+
+def _parse_pane_from_cells(row: list[Any]) -> Optional[PdfPane]:
+    try:
+        cant = int(parse_ar(row[0]))
+        ancho = int(parse_ar(row[1]))
+        alto = int(parse_ar(row[2]))
+    except (IndexError, ValueError):
+        return None
+    if cant <= 0 or ancho <= 0 or alto <= 0:
+        return None
+    denominacion = str(row[5]).strip() if len(row) > 5 and row[5] else None
+    if denominacion == "-":
+        denominacion = None
+    return PdfPane(
+        row_no=0,
+        cantidad=cant,
+        ancho_mm=ancho,
+        alto_mm=alto,
+        superficie_m2=parse_ar(row[3]) if len(row) > 3 else Decimal("0"),
+        perimetro_ml=parse_ar(row[4]) if len(row) > 4 else Decimal("0"),
+        denominacion=denominacion,
+        precio_unitario=parse_ar(row[6]) if len(row) > 6 else Decimal("0"),
+        precio_total=parse_ar(row[7]) if len(row) > 7 else Decimal("0"),
+    )
+
+
+def _parse_pane_from_text(line: str) -> Optional[PdfPane]:
+    m = PANE_TEXT_RE.match((line or "").strip())
+    if not m:
+        return None
+    return PdfPane(
+        row_no=0,
+        cantidad=int(m.group(1)),
+        ancho_mm=int(m.group(2)),
+        alto_mm=int(m.group(3)),
+        superficie_m2=parse_ar(m.group(4)),
+        perimetro_ml=parse_ar(m.group(5)),
+        denominacion=m.group(6),
+        precio_unitario=parse_ar(m.group(7)),
+        precio_total=parse_ar(m.group(8)),
+    )
+
+
+def _parse_adicional_from_cells(row: list[Any]) -> Optional[PdfAdicional]:
+    if not row:
+        return None
+    try:
+        cant = int(parse_ar(row[0]))
+    except (ValueError, IndexError):
+        return None
+    if cant <= 0:
+        return None
+    desc = str(row[1]).strip() if len(row) > 1 and row[1] else ""
+    if not desc or desc == "-":
+        return None
+    non_empty = [str(c).strip() for c in row if c and str(c).strip() and str(c).strip() != "-"]
+    if len(non_empty) < 3:
+        return None
+    p_uni = parse_ar(non_empty[-2])
+    p_tot = parse_ar(non_empty[-1])
+    if p_uni <= 0 and p_tot <= 0:
+        return None
+    return PdfAdicional(row_no=0, cantidad=cant, descripcion=desc, precio_unitario=p_uni, precio_total=p_tot)
+
+
+def _parse_adicional_from_text(line: str) -> Optional[PdfAdicional]:
+    line = (line or "").strip()
+    if "paños" in line.lower():
+        return None
+    if _parse_pane_from_text(line):
+        return None
+    m = ADICIONAL_TEXT_RE.match(line)
+    if not m:
+        return None
+    qty = int(m.group(1))
+    desc = m.group(2).strip()
+    if not desc:
+        return None
+    p_uni = parse_ar(m.group(3))
+    p_tot = parse_ar(m.group(4))
+    if p_uni <= 0 and p_tot <= 0:
+        return None
+    return PdfAdicional(row_no=0, cantidad=qty, descripcion=desc, precio_unitario=p_uni, precio_total=p_tot)
+
+
+def _pane_key(item_no: int, pane: PdfPane) -> tuple:
+    return (
+        item_no,
+        pane.cantidad,
+        pane.ancho_mm,
+        pane.alto_mm,
+        q2(pane.superficie_m2),
+        q2(pane.perimetro_ml),
+        (pane.denominacion or "").strip(),
+        q2(pane.precio_total),
+    )
+
+
+def _append_pane_if_new(item: PdfItem, pane: PdfPane, item_no: int, seen: set[tuple]) -> bool:
+    key = _pane_key(item_no, pane)
+    if key in seen:
+        return False
+    seen.add(key)
+    pane.row_no = len(item.panos) + 1
+    item.panos.append(pane)
+    return True
+
+
+def _append_adicional(item: PdfItem, adicional: PdfAdicional) -> None:
+    adicional.row_no = len(item.adicionales) + 1
+    item.adicionales.append(adicional)
 
 
 def _backfill_item_totals(items: List[PdfItem]) -> None:
@@ -468,7 +609,10 @@ def _validate(budget: ParsedBudget) -> None:
         if abs(sum_m2 - q2(item.total_m2)) > TOL:
             warnings.append(f"Ítem {item.numero_item}: Diferencia en m² ({sum_m2} vs {q2(item.total_m2)})")
         if sum_cant != item.cantidad:
-            warnings.append(f"Ítem {item.numero_item}: Diferencia en cantidad ({sum_cant} vs {item.cantidad})")
+            item.incompleto = True
+            warnings.append(
+                f"Ítem {item.numero_item}: Diferencia en cantidad (leída {sum_cant} vs esperada {item.cantidad}) [incompleto]"
+            )
 
     # Totales generales
     hdr = budget.presupuesto
@@ -511,6 +655,7 @@ def parsed_budget_to_dict(budget: ParsedBudget) -> Dict[str, Any]:
             "numero_item": item.numero_item,
             "descripcion": item.descripcion,
             "cantidad": item.cantidad,
+            "incompleto": item.incompleto,
             "total_pesos": _dec(item.total_pesos),
             "total_m2": _dec(item.total_m2),
             "total_ml": _dec(item.total_ml),
