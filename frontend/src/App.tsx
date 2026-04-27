@@ -13,12 +13,6 @@ function App() {
                 <nav className="navbar">
                     <div className="container">
                         <h1>Acopios - Fontela Cristales</h1>
-                        <ul className="nav-links">
-                            <li><Link to="/">Inicio</Link></li>
-                            <li><Link to="/acopios">Acopios</Link></li>
-                            <li><Link to="/acopios/alta">Nuevo Acopio</Link></li>
-                            <li><Link to="/reportes">Reportes</Link></li>
-                        </ul>
                     </div>
                 </nav>
 
@@ -48,7 +42,7 @@ function Home() {
             <div className="home-cards">
                  <Link to="/acopios/alta" className="card">
                     <h3>Nuevo Acopio</h3>
-                    <p>Desde Presupuesto SPF</p>
+                    <p>Desde presupuesto PDF / SPF</p>
                 </Link>
                 <Link to="/acopios" className="card">
                     <h3>Ver Acopios</h3>
