@@ -12,13 +12,8 @@ function App() {
             <div className="app">
                 <nav className="navbar">
                     <div className="container">
-                        <h1>Acopios - Fontela Cristales</h1>
-                        <ul className="nav-links">
-                            <li><Link to="/">Inicio</Link></li>
-                            <li><Link to="/acopios">Acopios</Link></li>
-                            <li><Link to="/acopios/alta">Nuevo Acopio</Link></li>
-                            <li><Link to="/reportes">Reportes</Link></li>
-                        </ul>
+                        <h1>Sistema de Gestión de Acopios</h1>
+                        <p className="navbar-subtitle">Bienvenido al sistema de gestión de acopios de Fontela Cristales.</p>
                     </div>
                 </nav>
 
@@ -43,12 +38,10 @@ function App() {
 function Home() {
     return (
         <div className="home">
-            <h2>Sistema de Gestión de Acopios</h2>
-            <p>Bienvenido al sistema de gestión de acopios de Fontela Cristales.</p>
             <div className="home-cards">
                  <Link to="/acopios/alta" className="card">
                     <h3>Nuevo Acopio</h3>
-                    <p>Desde Presupuesto SPF</p>
+                    <p>Desde presupuesto PDF / SPF</p>
                 </Link>
                 <Link to="/acopios" className="card">
                     <h3>Ver Acopios</h3>
