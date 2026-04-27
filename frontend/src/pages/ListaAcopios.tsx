@@ -101,6 +101,7 @@ function ListaAcopios() {
                             <tr>
                                 <th>Número</th>
                                 <th>Estado</th>
+                                <th>Cliente</th>
                                 <th>Fecha Alta</th>
                                 <th>Paños</th>
                                 <th>Saldo m²</th>
@@ -118,6 +119,7 @@ function ListaAcopios() {
                                             {acopio.estado}
                                         </span>
                                     </td>
+                                    <td>{acopio.cliente || '-'}</td>
                                     <td>{new Date(acopio.fecha_alta).toLocaleDateString()}</td>
                                     <td>{acopio.saldo_unidades ?? 0}</td>
                                     <td>{Number(acopio.saldo_m2).toFixed(2)}</td>

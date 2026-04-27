@@ -14,6 +14,7 @@ export interface Acopio {
     saldo_ml: number;
     saldo_pesos: number;
     saldo_unidades?: number;
+    cliente?: string | null;
 }
 
 export interface Pedido {

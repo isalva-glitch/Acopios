@@ -74,6 +74,7 @@ class AcopioResponse(BaseModel):
     saldo_ml: float
     saldo_pesos: float
     saldo_unidades: int
+    cliente: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -283,7 +284,8 @@ async def list_acopios(
             saldo_m2=a.saldo_m2 or Decimal('0'),
             saldo_ml=a.saldo_ml or Decimal('0'),
             saldo_pesos=a.saldo_pesos or Decimal('0'),
-            saldo_unidades=a.saldo_unidades or 0
+            saldo_unidades=a.saldo_unidades or 0,
+            cliente=(a.obra.cliente.nombre if a.obra and a.obra.cliente else None)
         )
         for a in acopios
     ]
