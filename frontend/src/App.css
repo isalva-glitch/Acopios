@@ -41,6 +41,12 @@
 }
 
 
+.home-title {
+    margin: 0;
+    color: #2c3e50;
+}
+
+
 .home-cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
