@@ -33,6 +33,12 @@
     color: #3498db;
 }
 
+.nav-links a.active {
+    color: #95a5a6;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;
@@ -49,15 +55,6 @@
     text-align: center;
 }
 
-.home h2 {
-    margin-bottom: 1rem;
-    color: #2c3e50;
-}
-
-.home p {
-    color: #7f8c8d;
-    margin-bottom: 2rem;
-}
 
 .home-cards {
     display: grid;
