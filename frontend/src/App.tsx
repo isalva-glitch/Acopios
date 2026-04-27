@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Link, NavLink } from 'react-router-dom'
 import AltaAcopio from './pages/AltaAcopio'
 import ListaAcopios from './pages/ListaAcopios'
 import DetalleAcopio from './pages/DetalleAcopio'
@@ -6,31 +6,42 @@ import Reportes from './pages/Reportes'
 import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
+function AppLayout() {
+    return (
+        <div className="app">
+            <nav className="navbar">
+                <div className="container">
+                    <h1>Acopios - Fontela Cristales</h1>
+                    <ul className="nav-links">
+                        <li><NavLink to="/" end>Inicio</NavLink></li>
+                        <li><NavLink to="/acopios" end>Acopios</NavLink></li>
+                        <li><NavLink to="/acopios/alta" end>Nuevo Acopio</NavLink></li>
+                        <li><NavLink to="/reportes" end>Reportes</NavLink></li>
+                    </ul>
+                </div>
+            </nav>
+
+            <main className="main-content">
+                <div className="container">
+                    <ErrorBoundary>
+                        <Routes>
+                            <Route path="/" element={<Home />} />
+                            <Route path="/acopios" element={<ListaAcopios />} />
+                            <Route path="/acopios/alta" element={<AltaAcopio />} />
+                            <Route path="/acopios/:id" element={<DetalleAcopio />} />
+                            <Route path="/reportes" element={<Reportes />} />
+                        </Routes>
+                    </ErrorBoundary>
+                </div>
+            </main>
+        </div>
+    )
+}
+
 function App() {
     return (
         <Router>
-            <div className="app">
-                <nav className="navbar">
-                    <div className="container">
-                        <h1>Sistema de Gestión de Acopios</h1>
-                        <p className="navbar-subtitle">Bienvenido al sistema de gestión de acopios de Fontela Cristales.</p>
-                    </div>
-                </nav>
-
-                <main className="main-content">
-                    <div className="container">
-                        <ErrorBoundary>
-                            <Routes>
-                                <Route path="/" element={<Home />} />
-                                <Route path="/acopios" element={<ListaAcopios />} />
-                                <Route path="/acopios/alta" element={<AltaAcopio />} />
-                                <Route path="/acopios/:id" element={<DetalleAcopio />} />
-                                <Route path="/reportes" element={<Reportes />} />
-                            </Routes>
-                        </ErrorBoundary>
-                    </div>
-                </main>
-            </div>
+            <AppLayout />
         </Router>
     )
 }

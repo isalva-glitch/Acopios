@@ -18,6 +18,12 @@
 
 
 
+.nav-links a.active {
+    color: #95a5a6;
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
 .container {
     max-width: 1200px;
     margin: 0 auto;
