@@ -14,6 +14,7 @@ export interface Acopio {
     saldo_ml: number;
     saldo_pesos: number;
     saldo_unidades?: number;
+    panos?: number; // Compatibilidad legacy: usar saldo_unidades cuando exista
     cliente?: string | null;
 }
 
