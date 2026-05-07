@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/client';
 import { PrecioReferencia } from '../types';
+import { PRECIO_REFERENCIA_PROCESOS } from '../constants/preciosReferencia';
 
 interface Props {
     acopioId: number;
@@ -78,46 +79,18 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
                     <div className="modal-body">
                         {error && <div className="error-message">{error}</div>}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                            <div className="form-group">
-                                <label>Vidrio Exterior</label>
-                                <input type="number" name="vidrio_exterior" value={formData.vidrio_exterior} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Vidrio Interior</label>
-                                <input type="number" name="vidrio_interior" value={formData.vidrio_interior} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Cámara Estructural</label>
-                                <input type="number" name="camara_estructural" value={formData.camara_estructural} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Pulido</label>
-                                <input type="number" name="pulido" value={formData.pulido} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Fasón Templado Exterior</label>
-                                <input type="number" name="fason_templado_exterior" value={formData.fason_templado_exterior} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Pegado a Bastidor</label>
-                                <input type="number" name="pegado_bastidor" value={formData.pegado_bastidor} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Cámara Normal</label>
-                                <input type="number" name="camara_normal" value={formData.camara_normal} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Opacificado Perimetral</label>
-                                <input type="number" name="opacificado_perimetral" value={formData.opacificado_perimetral} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Opacificado Total</label>
-                                <input type="number" name="opacificado_total" value={formData.opacificado_total} onChange={handleChange} step="0.01" />
-                            </div>
-                            <div className="form-group">
-                                <label>Cámara Offset</label>
-                                <input type="number" name="camara_offset" value={formData.camara_offset} onChange={handleChange} step="0.01" />
-                            </div>
+                            {PRECIO_REFERENCIA_PROCESOS.map((proceso) => (
+                                <div className="form-group" key={proceso.key}>
+                                    <label>{proceso.label}</label>
+                                    <input
+                                        type="number"
+                                        name={proceso.key}
+                                        value={formData[proceso.key]}
+                                        onChange={handleChange}
+                                        step="0.01"
+                                    />
+                                </div>
+                            ))}
                         </div>
                     </div>
                     <div className="modal-footer">

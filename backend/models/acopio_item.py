@@ -1,5 +1,5 @@
 """AcopioItem model."""
-from sqlalchemy import Column, String, Integer, ForeignKey, Numeric
+from sqlalchemy import Boolean, Column, String, Integer, ForeignKey, Numeric
 from sqlalchemy.orm import relationship
 from models.base import BaseModel
 
@@ -25,6 +25,18 @@ class AcopioItem(BaseModel):
     saldo_ml = Column(Numeric(12, 2), nullable=False, default=0)
     saldo_pesos = Column(Numeric(15, 2), nullable=False, default=0)
     saldo_cantidad = Column(Integer, nullable=False, default=0)
+
+    # Procesos asociados a precios de referencia
+    proceso_vidrio_exterior = Column(Boolean, nullable=False, default=False)
+    proceso_vidrio_interior = Column(Boolean, nullable=False, default=False)
+    proceso_camara_estructural = Column(Boolean, nullable=False, default=False)
+    proceso_pulido = Column(Boolean, nullable=False, default=False)
+    proceso_fason_templado_exterior = Column(Boolean, nullable=False, default=False)
+    proceso_pegado_bastidor = Column(Boolean, nullable=False, default=False)
+    proceso_camara_normal = Column(Boolean, nullable=False, default=False)
+    proceso_opacificado_perimetral = Column(Boolean, nullable=False, default=False)
+    proceso_opacificado_total = Column(Boolean, nullable=False, default=False)
+    proceso_camara_offset = Column(Boolean, nullable=False, default=False)
     
     # Foreign keys
     acopio_id = Column(Integer, ForeignKey("acopios.id"), nullable=False)

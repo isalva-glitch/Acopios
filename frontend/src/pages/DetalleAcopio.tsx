@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import apiClient from '../api/client';
 import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
+import {
+    PRECIO_REFERENCIA_PROCESOS,
+    type PrecioReferenciaProcesoKey
+} from '../constants/preciosReferencia';
 
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
@@ -21,6 +25,8 @@ function DetalleAcopio() {
     const [anulandoId, setAnulandoId] = useState<number | null>(null);
     const [anulacionError, setAnulacionError] = useState<string | null>(null);
     const [showPreciosModal, setShowPreciosModal] = useState(false);
+    const [itemProcessSaving, setItemProcessSaving] = useState<Record<string, boolean>>({});
+    const [itemProcessError, setItemProcessError] = useState<string | null>(null);
 
     useEffect(() => {
         loadAcopio();
@@ -121,6 +127,74 @@ function DetalleAcopio() {
             setImputationError(err.response?.data?.detail || 'Error al confirmar la imputación');
         } finally {
             setImputationLoading(false);
+        }
+    };
+
+    const updateItemProcesoLocal = (
+        itemId: number,
+        processKey: PrecioReferenciaProcesoKey,
+        checked: boolean
+    ) => {
+        setAcopio((prev: any) => {
+            if (!prev) return prev;
+
+            return {
+                ...prev,
+                items: prev.items.map((item: any) => (
+                    item.id === itemId
+                        ? {
+                            ...item,
+                            procesos: {
+                                ...(item.procesos || {}),
+                                [processKey]: checked
+                            }
+                        }
+                        : item
+                ))
+            };
+        });
+    };
+
+    const handleToggleItemProceso = async (
+        itemId: number,
+        processKey: PrecioReferenciaProcesoKey,
+        checked: boolean
+    ) => {
+        const savingKey = `${itemId}:${processKey}`;
+        const item = acopio.items.find((current: any) => current.id === itemId);
+        const previousValue = Boolean(item?.procesos?.[processKey]);
+
+        setItemProcessError(null);
+        setItemProcessSaving(prev => ({ ...prev, [savingKey]: true }));
+        updateItemProcesoLocal(itemId, processKey, checked);
+
+        try {
+            const response = await apiClient.patch(
+                `/acopios/${id}/items/${itemId}/procesos`,
+                { [processKey]: checked }
+            );
+
+            setAcopio((prev: any) => {
+                if (!prev) return prev;
+
+                return {
+                    ...prev,
+                    items: prev.items.map((current: any) => (
+                        current.id === itemId
+                            ? { ...current, procesos: response.data.procesos }
+                            : current
+                    ))
+                };
+            });
+        } catch (err: any) {
+            updateItemProcesoLocal(itemId, processKey, previousValue);
+            setItemProcessError(err.response?.data?.detail || 'No se pudo guardar el proceso del item.');
+        } finally {
+            setItemProcessSaving(prev => {
+                const next = { ...prev };
+                delete next[savingKey];
+                return next;
+            });
         }
     };
 
@@ -327,85 +401,117 @@ function DetalleAcopio() {
 
             <div className="form-section">
                 <h3>Total Items ({acopio.items.length})</h3>
+                {itemProcessError && (
+                    <div className="item-process-error">
+                        {itemProcessError}
+                    </div>
+                )}
                 {acopio.items.map((item: any, idx: number) => (
-                    <div key={item.id} style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f8f9fa', borderRadius: '4px' }}>
-                        <h4>Item Nº {idx + 1}</h4>
-                        <p>
-                            <strong>Material:</strong> {item.descripcion}
-                        </p>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginTop: '0.5rem' }}>
-                            <div>
-                                <strong>m²:</strong> {Number(item.totals.m2).toFixed(2)} (saldo: {Number(item.saldos.m2).toFixed(2)})
+                    <div key={item.id} className="acopio-item-card">
+                        <div className="acopio-item-content">
+                            <h4>Item Nº {idx + 1}</h4>
+                            <p>
+                                <strong>Material:</strong> {item.descripcion}
+                            </p>
+                            <div className="acopio-item-metrics">
+                                <div>
+                                    <strong>m²:</strong> {Number(item.totals.m2).toFixed(2)} (saldo: {Number(item.saldos.m2).toFixed(2)})
+                                </div>
+                                <div>
+                                    <strong>ml:</strong> {Number(item.totals.ml).toFixed(2)} (saldo: {Number(item.saldos.ml).toFixed(2)})
+                                </div>
+                                <div>
+                                    <strong>$:</strong> {Number(item.totals.pesos).toFixed(2)} (saldo: {Number(item.saldos.pesos).toFixed(2)})
+                                </div>
                             </div>
-                            <div>
-                                <strong>ml:</strong> {Number(item.totals.ml).toFixed(2)} (saldo: {Number(item.saldos.ml).toFixed(2)})
-                            </div>
-                            <div>
-                                <strong>$:</strong> {Number(item.totals.pesos).toFixed(2)} (saldo: {Number(item.saldos.pesos).toFixed(2)})
-                            </div>
+
+                            {item.panos.length > 0 && (
+                                <details style={{ marginTop: '0.5rem' }}>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
+                                        Paños ({item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0)})
+                                    </summary>
+                                    <div className="table" style={{ marginTop: '0.5rem' }}>
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Cantidad</th>
+                                                    <th>Ancho</th>
+                                                    <th>Alto</th>
+                                                    <th>m²</th>
+                                                    <th>ml</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {item.panos.map((pano: any) => (
+                                                    <tr key={pano.id}>
+                                                        <td>{pano.cantidad}</td>
+                                                        <td>{pano.ancho}</td>
+                                                        <td>{pano.alto}</td>
+                                                        <td>{pano.superficie_m2}</td>
+                                                        <td>{pano.perimetro_ml}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            )}
+
+                            {item.adicionales && item.adicionales.length > 0 && (
+                                <details style={{ marginTop: '0.5rem' }}>
+                                    <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#e67e22' }}>
+                                        Adicionales / Servicios ({item.adicionales.length})
+                                    </summary>
+                                    <div className="table" style={{ marginTop: '0.5rem' }}>
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Cantidad</th>
+                                                    <th>Descripción</th>
+                                                    <th>Unitario</th>
+                                                    <th>Total</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {item.adicionales.map((adc: any) => (
+                                                    <tr key={adc.id}>
+                                                        <td>{adc.cantidad}</td>
+                                                        <td>{adc.descripcion}</td>
+                                                        <td>${Number(adc.precio_unitario).toFixed(2)}</td>
+                                                        <td>${Number(adc.precio_total).toFixed(2)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </details>
+                            )}
                         </div>
 
-                        {item.panos.length > 0 && (
-                            <details style={{ marginTop: '0.5rem' }}>
-                                <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
-                                    Paños ({item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0)})
-                                </summary>
-                                <div className="table" style={{ marginTop: '0.5rem' }}>
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Cantidad</th>
-                                                <th>Ancho</th>
-                                                <th>Alto</th>
-                                                <th>m²</th>
-                                                <th>ml</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {item.panos.map((pano: any) => (
-                                                <tr key={pano.id}>
-                                                    <td>{pano.cantidad}</td>
-                                                    <td>{pano.ancho}</td>
-                                                    <td>{pano.alto}</td>
-                                                    <td>{pano.superficie_m2}</td>
-                                                    <td>{pano.perimetro_ml}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </details>
-                        )}
+                        <div className="item-processes-panel">
+                            <div className="item-processes-title">Procesos</div>
+                            <div className="item-processes-list">
+                                {PRECIO_REFERENCIA_PROCESOS.map((proceso) => {
+                                    const savingKey = `${item.id}:${proceso.key}`;
 
-                        {item.adicionales && item.adicionales.length > 0 && (
-                            <details style={{ marginTop: '0.5rem' }}>
-                                <summary style={{ cursor: 'pointer', fontWeight: 'bold', color: '#e67e22' }}>
-                                    Adicionales / Servicios ({item.adicionales.length})
-                                </summary>
-                                <div className="table" style={{ marginTop: '0.5rem' }}>
-                                    <table>
-                                        <thead>
-                                            <tr>
-                                                <th>Cantidad</th>
-                                                <th>Descripción</th>
-                                                <th>Unitario</th>
-                                                <th>Total</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {item.adicionales.map((adc: any) => (
-                                                <tr key={adc.id}>
-                                                    <td>{adc.cantidad}</td>
-                                                    <td>{adc.descripcion}</td>
-                                                    <td>${Number(adc.precio_unitario).toFixed(2)}</td>
-                                                    <td>${Number(adc.precio_total).toFixed(2)}</td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </details>
-                        )}
+                                    return (
+                                        <label className="item-process-check" key={proceso.key} title={proceso.label}>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(item.procesos?.[proceso.key])}
+                                                disabled={Boolean(itemProcessSaving[savingKey])}
+                                                onChange={(event) => handleToggleItemProceso(
+                                                    item.id,
+                                                    proceso.key,
+                                                    event.target.checked
+                                                )}
+                                            />
+                                            <span>{proceso.shortLabel}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
                     </div>
                 ))}
             </div>

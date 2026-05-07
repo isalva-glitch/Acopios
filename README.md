@@ -21,6 +21,9 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Seguimiento detallado por Obra y Cliente
 - ✅ Imputación de consumos con control de excedentes
 - ✅ Anulación de imputaciones con recálculo automático de saldos
+- ✅ Gestión de Precios de Referencia (Base y Actual) para control de rentabilidad
+- ✅ Panel de Procesos por Item (Templado, Laminado, Pulido, etc.) con guardado automático
+- ✅ Interfaz de usuario optimizada (Alto contraste y layout dinámico)
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
 - ✅ Reportes de acopios activos, excedentes y vencimientos
 - ✅ Validación automática con warnings

@@ -5,26 +5,39 @@ from typing import List, Optional
 from pydantic import BaseModel
 from decimal import Decimal
 
-"""Acopios router."""
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from pydantic import BaseModel
-from decimal import Decimal
-
 from database import get_db
-from models import Acopio
 from storage import save_file
 from extraction import extract_standard_budget_pdf
 from integrations.pdf import extract_budget_pdf, parsed_budget_to_dict
 from services import acopio_service
 from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
-from models import Acopio, PrecioReferencia
+from models import Acopio, AcopioItem, PrecioReferencia
 from schemas.precio_referencia import PrecioReferenciaResponse, PrecioReferenciaCreate, PrecioReferenciaUpdate
 
 
 router = APIRouter()
+
+
+PROCESS_FIELDS = (
+    "vidrio_exterior",
+    "vidrio_interior",
+    "camara_estructural",
+    "pulido",
+    "fason_templado_exterior",
+    "pegado_bastidor",
+    "camara_normal",
+    "opacificado_perimetral",
+    "opacificado_total",
+    "camara_offset",
+)
+
+
+def item_procesos_to_dict(item: AcopioItem) -> dict:
+    return {
+        field: bool(getattr(item, f"proceso_{field}", False))
+        for field in PROCESS_FIELDS
+    }
 
 
 # Pydantic models
@@ -45,6 +58,20 @@ class AcopioConfirmSpf(BaseModel):
 class AcopioConfirm(BaseModel):
     """Confirmation payload."""
     extraction_package: dict
+
+
+class AcopioItemProcesosUpdate(BaseModel):
+    """Update payload for reference-price process flags on an item."""
+    vidrio_exterior: Optional[bool] = None
+    vidrio_interior: Optional[bool] = None
+    camara_estructural: Optional[bool] = None
+    pulido: Optional[bool] = None
+    fason_templado_exterior: Optional[bool] = None
+    pegado_bastidor: Optional[bool] = None
+    camara_normal: Optional[bool] = None
+    opacificado_perimetral: Optional[bool] = None
+    opacificado_total: Optional[bool] = None
+    camara_offset: Optional[bool] = None
 
 
 class AcopioTotals(BaseModel):
@@ -375,6 +402,7 @@ async def get_acopio_detail(
                     "pesos": float(item.saldo_pesos or 0),
                     "unidades": item.saldo_cantidad or 0
                 },
+                "procesos": item_procesos_to_dict(item),
                 "panos": [
                     {
                         "id": pano.id,
@@ -414,6 +442,44 @@ async def get_acopio_detail(
             }
             for imp in acopio.imputaciones
         ]
+    }
+
+
+@router.patch("/{acopio_id}/items/{item_id}/procesos")
+async def update_acopio_item_procesos(
+    acopio_id: int,
+    item_id: int,
+    payload: AcopioItemProcesosUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update reference-price process flags for an acopio item."""
+    item = db.query(AcopioItem).filter(
+        AcopioItem.id == item_id,
+        AcopioItem.acopio_id == acopio_id,
+    ).first()
+
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Acopio item not found"
+        )
+
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(item, f"proceso_{field}", bool(value))
+
+    try:
+        db.commit()
+        db.refresh(item)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update item processes: {str(e)}"
+        )
+
+    return {
+        "id": item.id,
+        "procesos": item_procesos_to_dict(item)
     }
 
 

@@ -343,6 +343,108 @@
     min-width: 720px;
 }
 
+.acopio-item-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+    gap: 1rem;
+    align-items: stretch;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background-color: #f8f9fa;
+    border: 1px solid #e2e8ee;
+    border-radius: 4px;
+}
+
+.acopio-item-content {
+    min-width: 0;
+}
+
+.acopio-item-content h4 {
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+.acopio-item-content p {
+    line-height: 1.45;
+}
+
+.acopio-item-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(140px, 1fr));
+    gap: 0.75rem 1rem;
+    margin-top: 0.5rem;
+}
+
+.item-processes-panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding-left: 1rem;
+    border-left: 1px solid #cfd8df;
+}
+
+.item-processes-title {
+    margin-bottom: 0.55rem;
+    color: #52616b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.item-processes-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+}
+
+.item-process-check {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    min-height: 1.85rem;
+    padding: 0.25rem 0.45rem;
+    background: #ffffff;
+    border: 1px solid #dce4ea;
+    border-radius: 4px;
+    color: #2c3e50;
+    font-size: 0.78rem;
+    line-height: 1.15;
+}
+
+.item-process-check input {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    margin: 0;
+    accent-color: #3498db;
+}
+
+.item-process-check span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.item-process-check:focus-within {
+    border-color: #3498db;
+    box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.16);
+}
+
+.item-process-check input:disabled + span {
+    color: #95a5a6;
+}
+
+.item-process-error {
+    margin-bottom: 1rem;
+    padding: 0.75rem 1rem;
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    color: #721c24;
+}
+
 @media (max-width: 768px) {
     .navbar .container {
         align-items: flex-start;
@@ -380,5 +482,20 @@
     .detalle-general-grid {
         grid-template-columns: 1fr;
         gap: 0.5rem;
+    }
+
+    .acopio-item-card {
+        grid-template-columns: 1fr;
+    }
+
+    .acopio-item-metrics {
+        grid-template-columns: 1fr;
+    }
+
+    .item-processes-panel {
+        padding-top: 0.9rem;
+        padding-left: 0;
+        border-top: 1px solid #cfd8df;
+        border-left: 0;
     }
 }
