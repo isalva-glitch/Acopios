@@ -6,14 +6,15 @@ from integrations.pdf.extractor import (
     ParsedBudget,
     PdfPresupuesto,
     _parse_detailed_all_pages,
+    _parse_header_block_from_text,
     _validate,
 )
 
 
 class FakeTable:
-    def __init__(self, rows):
+    def __init__(self, rows, bbox=(0, 120, 500, 420)):
         self._rows = rows
-        self.bbox = (0, 120, 500, 420)
+        self.bbox = bbox
 
     def extract(self):
         return self._rows
@@ -32,7 +33,9 @@ class FakePage:
     def extract_text(self):
         return self._text
 
-    def within_bbox(self, _bbox):
+    def within_bbox(self, bbox):
+        if bbox[3] <= bbox[1]:
+            raise ValueError(f"{bbox} has a negative width or height")
         return FakePage(self._above_text, [])
 
 
@@ -65,13 +68,13 @@ def test_parse_detailed_hybrid_recovers_rows_across_pages_without_duplicate_item
 
     table_page_1 = FakeTable(
         [
-            ["Cantidad", "Ancho", "Alto", "Superficie", "Perímetro", "Denominación", "Unitario", "Total"],
+            ["Cantidad", "Ancho", "Alto", "Superficie", "Perimetro", "Denominacion", "Unitario", "Total"],
             ["100", "950", "1040", "118.60", "477.60", "PV1", "213.103,49", "21.310.349,00"],
         ]
     )
     table_page_2 = FakeTable(
         [
-            ["Cantidad", "Ancho", "Alto", "Superficie", "Perímetro", "Denominación", "Unitario", "Total"],
+            ["Cantidad", "Ancho", "Alto", "Superficie", "Perimetro", "Denominacion", "Unitario", "Total"],
             ["77", "950", "1040", "91.18", "367.29", "PV2", "181.869,48", "14.003.950,04"],
         ]
     )
@@ -80,21 +83,26 @@ def test_parse_detailed_hybrid_recovers_rows_across_pages_without_duplicate_item
         [
             "1 Laminado",
             "100 950 1040 118,60 477,60 PV1 $213.103,49 $21.310.349,00",
-            "2 BISAGRA PARED VIDRIO 90° ZAMAK CROM FT $19.330,80 $38.661,60",
+            "2 BISAGRA PARED VIDRIO 90 DEG ZAMAK CROM FT $19.330,80 $38.661,60",
             "322 950 1040 381,68 1537,35 PV1 $216.368,85 $69.664.328,52",
-            "422 paños 753,19 3014,95 $132.081.918,57",
+            "422 pa\u00f1os 753,19 3014,95 $132.081.918,57",
         ]
     )
     page_2_text = "\n".join(
         [
             "2 Otro item",
             "8 950 1040 9,47 38,18 PV2 $179.973,13 $1.439.785,01",
-            "85 paños 100,00 400,00 $15.443.735,05",
+            "85 pa\u00f1os 100,00 400,00 $15.443.735,05",
         ]
     )
 
+    # Page 0 is the header/consolidated page (always skipped by the extractor).
+    # Pages 1+ are the detail pages. Without a dummy page 0, pages[0] gets
+    # page_idx=1 and is skipped, losing all item 1 panos.
+    dummy_header_page = FakePage("Presupuesto consolidado:", [], above_text="")
     pdf = FakePdf(
         [
+            dummy_header_page,
             FakePage(page_1_text, [table_page_1], above_text="1 Laminado"),
             FakePage(page_2_text, [table_page_2], above_text=""),
         ]
@@ -129,5 +137,114 @@ def test_marks_incomplete_when_read_quantity_differs_from_expected():
     )
     parsed = ParsedBudget(presupuesto=_dummy_budget(), items=[item])
     _validate(parsed)
+
     assert item.incompleto is True
-    assert any("esperada 10" in w and "leída 8" in w for w in parsed.warnings)
+    assert any("esperada 10" in w and "8" in w for w in parsed.warnings)
+
+
+def test_parse_detailed_skips_invalid_above_table_bbox():
+    items = [
+        PdfItem(numero_item=1, descripcion="ITEM 1", cantidad=1, total_pesos=Decimal("100")),
+    ]
+    table = FakeTable(
+        [
+            ["Cantidad", "Ancho", "Alto", "Superficie", "Perimetro", "Denominacion", "Unitario", "Total"],
+            ["1", "1000", "1000", "1,00", "4,00", "-", "100,00", "100,00"],
+        ],
+        bbox=(0, -10, 500, 120),
+    )
+    pdf = FakePdf(
+        [
+            FakePage("Presupuesto consolidado:", []),
+            FakePage("1 ITEM 1\n1 1000 1000 1,00 4,00 $100,00 $100,00", [table]),
+        ]
+    )
+
+    _parse_detailed_all_pages(pdf, items)
+
+    assert sum(p.cantidad for p in items[0].panos) == 1
+
+
+def test_page_continuation_keeps_previous_item_until_subtotal_and_next_header():
+    items = [
+        PdfItem(numero_item=2, descripcion="ITEM 2", cantidad=5, total_pesos=Decimal("1050")),
+        PdfItem(numero_item=3, descripcion="ITEM 3", cantidad=2, total_pesos=Decimal("500")),
+    ]
+    page_text = "\n".join(
+        [
+            "Cantidad Ancho Alto Superficie Perimetro Denominacion Unitario Total",
+            "5 1000 1000 5,00 20,00 CW2 $210,00 $1.050,00",
+            "Totales",
+            "5 pa\u00f1os 5,00 20,00 $1.050,00",
+            "DVH siguiente",
+            "3 ITEM 3",
+            "Cantidad Ancho Alto Superficie Perimetro Denominacion Unitario Total",
+            "2 500 500 0,50 4,00 CW3 $250,00 $500,00",
+            "Totales",
+            "2 pa\u00f1os 0,50 4,00 $500,00",
+        ]
+    )
+    pdf = FakePdf(
+        [
+            FakePage("Presupuesto consolidado:", []),
+            FakePage("2 ITEM 2", []),
+            FakePage(page_text, []),
+        ]
+    )
+
+    _parse_detailed_all_pages(pdf, items)
+
+    assert sum(p.cantidad for p in items[0].panos) == 5
+    assert sum(p.cantidad for p in items[1].panos) == 2
+
+
+def test_parse_header_block_recovers_split_empresa_obra():
+    text = """
+Presupuesto Nº:
+#000209118
+Cotizado Fecha de
+Empresa Contacto Estado
+por aprobación
+CONSTRUCTORA MARIANO PANETTO / HOSPITAL MARIANO Abel
+Parcial 07/10/25
+SUNCHALES PARETTO Paladini
+Presupuesto consolidado:
+"""
+
+    empresa, obra, contacto, cotizado, fecha = _parse_header_block_from_text(
+        text,
+        contacto="MARIANO PARETTO",
+        cotizado_por="Abel Paladini",
+        estado="Parcial",
+    )
+
+    assert empresa == "CONSTRUCTORA MARIANO PANETTO"
+    assert obra == "HOSPITAL SUNCHALES"
+    assert contacto == "MARIANO PARETTO"
+    assert cotizado == "Abel Paladini"
+    assert fecha == "07/10/25"
+
+
+def test_parse_header_block_recovers_tail_after_contact():
+    text = """
+Cotizado Fecha de
+Empresa Contacto Estado
+por aprobación
+Ing. Rinaldi Construcciones S.R.L. / OBRA ESPAÑA FRANCA
+Anulado Abel Paladini 21/04/26
+257 DAULON
+Presupuesto consolidado:
+"""
+
+    empresa, obra, contacto, cotizado, fecha = _parse_header_block_from_text(
+        text,
+        contacto="FRANCA DAULON",
+        cotizado_por="Abel Paladini",
+        estado="Anulado",
+    )
+
+    assert empresa == "Ing. Rinaldi Construcciones S.R.L."
+    assert obra == "OBRA ESPAÑA 257"
+    assert contacto == "FRANCA DAULON"
+    assert cotizado == "Abel Paladini"
+    assert fecha == "21/04/26"

@@ -15,8 +15,10 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 ## Características Principales
 
 - ✅ Alta de acopios desde PDF estándar con extracción automática de datos
+- ✅ Motor de extracción híbrido (Tablas + Texto) para máxima fidelidad en documentos complejos
 - ✅ Control de consumo por m², ml y pesos (separando datos físicos de económicos)
 - ✅ Gestión de pedidos y remitos (integración directa con base de datos SPF)
+- ✅ Seguimiento detallado por Obra y Cliente
 - ✅ Imputación de consumos con control de excedentes
 - ✅ Anulación de imputaciones con recálculo automático de saldos
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
@@ -145,6 +147,13 @@ npm run dev
 El sistema usa JSON Schema draft 2020-12 para validar la salida del extractor de PDFs antes de persistir en base de datos.
 
 Schema location: `backend/schemas/acopio_package_schema.json`
+
+## Extracción Híbrida (V2)
+
+El sistema implementa un motor de extracción de segunda generación que combina:
+1. **Detección de Tablas**: Identifica la estructura visual del presupuesto.
+2. **Parsing de Texto**: Recupera líneas que la detección de tablas puede omitir en documentos extensos o con formato irregular.
+3. **Deduplicación Inteligente**: Utiliza algoritmos de conteo para asegurar que no se dupliquen filas ni se pierdan ítems, manteniendo la integridad de los totales.
 
 ## Licencia
 

@@ -16,6 +16,7 @@ export interface Acopio {
     saldo_unidades?: number;
     panos?: number; // Compatibilidad legacy: usar saldo_unidades cuando exista
     cliente?: string | null;
+    obra?: string | null;
 }
 
 export interface Pedido {

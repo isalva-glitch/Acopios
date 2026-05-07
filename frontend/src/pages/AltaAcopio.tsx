@@ -63,6 +63,7 @@ export interface AcopioCreationResult {
     presupuesto_id: number | null;
     numero_presupuesto: string;
     cliente: string;
+    obra?: string | null;
     totals: {
         cantidad: number;
         m2: number;
@@ -210,7 +211,8 @@ function AltaAcopio() {
                             <strong>ID Interno:</strong> {successData.acopio_id}<br />
                             <strong>Presupuesto:</strong> {successData.numero_presupuesto}<br />
                             <strong>Origen:</strong> {successData.source.toUpperCase()}<br />
-                            <strong>Cliente:</strong> {successData.cliente}
+                            <strong>Cliente:</strong> {successData.cliente}<br />
+                            <strong>Obra:</strong> {successData.obra || '-'}
                         </div>
                         <div>
                             <strong>Resumen:</strong><br />
@@ -320,7 +322,7 @@ function AltaAcopio() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', borderBottom: '1px solid #eee', paddingBottom: '1rem' }}>
                             <div>
                                 <strong>Presupuesto Nº:</strong> {pdfPreview.presupuesto.numero}<br />
-                                <strong>Empresa:</strong> {pdfPreview.presupuesto.empresa_raw || pdfPreview.presupuesto.empresa}<br />
+                                <strong>Cliente:</strong> {pdfPreview.presupuesto.empresa || pdfPreview.presupuesto.empresa_raw}<br />
                                 <strong>Obra:</strong> {pdfPreview.presupuesto.obra || "Sin especificar"}<br />
                                 <strong>Contacto:</strong> {pdfPreview.presupuesto.contacto}<br />
                                 <strong>Estado PDF:</strong> {pdfPreview.presupuesto.estado}

@@ -50,6 +50,7 @@ class AcopioCreationResult(BaseModel):
     presupuesto_id: Optional[int] = None
     numero_presupuesto: Optional[str] = None
     cliente: Optional[str] = None
+    obra: Optional[str] = None
     totals: AcopioTotals
     items_count: int
     panos_count: int
@@ -75,6 +76,7 @@ class AcopioResponse(BaseModel):
     saldo_pesos: float
     saldo_unidades: int
     cliente: Optional[str] = None
+    obra: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -147,6 +149,7 @@ async def confirm_acopio_pdf(
             presupuesto_id=acopio.presupuestos[0].id if acopio.presupuestos else None,
             numero_presupuesto=acopio.numero,
             cliente=acopio.obra.cliente.nombre if acopio.obra and acopio.obra.cliente else "Desconocido",
+            obra=acopio.obra.nombre if acopio.obra else None,
             totals=AcopioTotals(
                 cantidad=acopio.total_unidades,
                 m2=acopio.total_m2,
@@ -234,6 +237,7 @@ async def create_acopio_from_spf(
             presupuesto_id=acopio.presupuestos[0].id if acopio.presupuestos else None,
             numero_presupuesto=acopio.numero,
             cliente=acopio.obra.cliente.nombre if acopio.obra and acopio.obra.cliente else "Desconocido",
+            obra=acopio.obra.nombre if acopio.obra else None,
             totals=AcopioTotals(
                 cantidad=acopio.total_unidades,
                 m2=acopio.total_m2,
@@ -285,7 +289,8 @@ async def list_acopios(
             saldo_ml=a.saldo_ml or Decimal('0'),
             saldo_pesos=a.saldo_pesos or Decimal('0'),
             saldo_unidades=a.saldo_unidades or 0,
-            cliente=(a.obra.cliente.nombre if a.obra and a.obra.cliente else None)
+            cliente=(a.obra.cliente.nombre if a.obra and a.obra.cliente else None),
+            obra=(a.obra.nombre if a.obra else None)
         )
         for a in acopios
     ]

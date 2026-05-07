@@ -1,6 +1,6 @@
 """PDF extractor for Fontela-format standard budget PDFs using structural table extraction.
 
-Refactored to use pdfplumber's table detection for maximum robustness against 
+Refactored to use pdfplumber's table detection for maximum robustness against
 multi-line descriptions and complex layouts.
 """
 from __future__ import annotations
@@ -8,12 +8,14 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 
 import pdfplumber
+from collections import Counter
 
 logger = logging.getLogger(__name__)
 DEBUG_DETAIL_PARSE = os.getenv("PDF_EXTRACTOR_DEBUG", "").lower() in {"1", "true", "yes", "on"}
@@ -49,6 +51,108 @@ def parse_ar(raw: Any) -> Decimal:
         return Decimal(s)
     except InvalidOperation:
         return Decimal("0")
+
+
+def _clean_text(raw: Any) -> str:
+    if raw is None:
+        return ""
+    return " ".join(str(raw).split())
+
+
+def _norm_header(raw: Any) -> str:
+    text = unicodedata.normalize("NFKD", _clean_text(raw).lower())
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+ESTADOS_PRESUPUESTO = ["Parcial", "Produccion", "Producción", "Enviado", "Anulado", "Aprobado", "Pendiente"]
+
+
+def _split_empresa_obra(raw_empresa: str) -> tuple[str, str]:
+    raw_empresa = _clean_text(raw_empresa)
+    if "/" not in raw_empresa:
+        return raw_empresa, ""
+    empresa, obra = raw_empresa.split("/", 1)
+    return _clean_text(empresa), _clean_text(obra)
+
+
+def _strip_trailing_token(text: str, token: str) -> str:
+    text = _clean_text(text)
+    token = _clean_text(token)
+    if not text or not token:
+        return text
+    pattern = rf"\s+{re.escape(token)}$"
+    return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+
+
+def _parse_header_block_from_text(
+    text: str,
+    contacto: str = "",
+    cotizado_por: str = "",
+    estado: str = "",
+    fecha_aprobacion: Optional[str] = None,
+) -> tuple[str, str, str, str, Optional[str]]:
+    """Recover Empresa/Obra when pdfplumber drops the Empresa column."""
+    block_m = re.search(
+        r"por\s+aprobaci\S*\s*(.*?)\s*Presupuesto consolidado:",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not block_m:
+        return "", "", contacto, cotizado_por, fecha_aprobacion
+
+    lines = [_clean_text(line) for line in block_m.group(1).splitlines() if _clean_text(line)]
+    if not lines:
+        return "", "", contacto, cotizado_por, fecha_aprobacion
+
+    state_idx = None
+    estado_found = estado
+    for idx, line in enumerate(lines):
+        for possible in ESTADOS_PRESUPUESTO:
+            if re.search(rf"\b{re.escape(possible)}\b", line, re.IGNORECASE):
+                state_idx = idx
+                estado_found = estado_found or possible
+                break
+        if state_idx is not None:
+            break
+
+    before_lines = lines if state_idx is None else lines[:state_idx]
+    state_line = "" if state_idx is None else lines[state_idx]
+    after_lines = [] if state_idx is None else lines[state_idx + 1:]
+
+    date_m = re.search(r"\b\d{2}/\d{2}/\d{2,4}\b", state_line)
+    if date_m and not fecha_aprobacion:
+        fecha_aprobacion = date_m.group(0)
+
+    if state_line and not cotizado_por:
+        state_without_date = re.sub(r"\b\d{2}/\d{2}/\d{2,4}\b", "", state_line)
+        if estado_found:
+            state_without_date = re.sub(rf"\b{re.escape(estado_found)}\b", "", state_without_date, flags=re.IGNORECASE)
+        cotizado_por = _clean_text(state_without_date)
+
+    contact_parts = contacto.split()
+    cotizado_parts = cotizado_por.split()
+    contact_first = contact_parts[0] if contact_parts else ""
+    contact_last = contact_parts[-1] if len(contact_parts) > 1 else contact_first
+    cotizado_first = cotizado_parts[0] if cotizado_parts else ""
+    cotizado_last = cotizado_parts[-1] if len(cotizado_parts) > 1 else cotizado_first
+
+    cleaned_before = []
+    for line in before_lines:
+        line = _strip_trailing_token(line, cotizado_first)
+        line = _strip_trailing_token(line, contact_first)
+        if line:
+            cleaned_before.append(line)
+
+    cleaned_after = []
+    for line in after_lines:
+        line = _strip_trailing_token(line, cotizado_last)
+        line = _strip_trailing_token(line, contact_last)
+        if line:
+            cleaned_after.append(line)
+
+    raw_empresa = _clean_text(" ".join(cleaned_before + cleaned_after))
+    empresa, obra = _split_empresa_obra(raw_empresa)
+    return empresa, obra, _clean_text(contacto), _clean_text(cotizado_por), fecha_aprobacion
 
 
 # ─── dataclasses ────────────────────────────────────────────────────────────
@@ -121,25 +225,25 @@ def extract_budget_pdf(pdf_path: str | Path) -> ParsedBudget:
     with pdfplumber.open(str(pdf_path)) as pdf:
         # 1. Parsear Encabezado y Totales Generales
         budget_hdr = _parse_header_and_totals(pdf)
-        
+
         # 2. Parsear Items Consolidados (Lista maestra)
         items = _parse_consolidated(pdf.pages[0])
-        
+
         # 3. Parsear Detalle de Paños (Páginas 2 en adelante)
         _parse_detailed_all_pages(pdf, items)
-        
+
         # 4. Backfill y Validación
         _backfill_item_totals(items)
         result = ParsedBudget(presupuesto=budget_hdr, items=items)
         _validate(result)
-        
+
         return result
 
 
 def _parse_header_and_totals(pdf) -> PdfPresupuesto:
     page1 = pdf.pages[0]
     text = page1.extract_text() or ""
-    
+
     # Búsqueda de campo número (está fuera de tabla usualmente)
     # Patrón flexible para: Presupuesto Nº: 000209365, Presupuesto N° 123, etc.
     num_m = re.search(r"Presupuesto\s*N[º°]?\s*[:\s]*\s*#?(\d+)", text, re.IGNORECASE)
@@ -150,50 +254,63 @@ def _parse_header_and_totals(pdf) -> PdfPresupuesto:
     raw_empresa_found = ""
     potential_obra_from_empresa = ""
     fecha_aprobacion = None
-    
+
     tables = page1.extract_tables()
     for table in tables:
         # Buscamos la tabla que contiene Contacto/Estado
-        headers = [str(h).lower().strip() for h in table[0] if h]
+        headers = [_norm_header(h) for h in table[0]]
         if "contacto" in headers or "estado" in headers:
             row = table[1]
-            
+
             # Intentar leer empresa directamente de la tabla si existe la columna
             try:
                 idx_emp = headers.index("empresa")
-                raw_val = str(row[idx_emp]).strip() if row[idx_emp] else ""
+                raw_val = _clean_text(row[idx_emp]) if row[idx_emp] else ""
                 if raw_val:
                     raw_empresa_found = raw_val
-                    if "/" in raw_val:
-                        parts = raw_val.split("/", 1)
-                        empresa = parts[0].strip()
-                        potential_obra_from_empresa = parts[1].strip()
-                    else:
-                        empresa = raw_val
-                        potential_obra_from_empresa = ""
+                    empresa, potential_obra_from_empresa = _split_empresa_obra(raw_val)
             except (ValueError, IndexError): pass
 
             try:
                 idx_cont = headers.index("contacto")
-                contacto = str(row[idx_cont]).strip() if row[idx_cont] else ""
+                contacto = _clean_text(row[idx_cont]) if row[idx_cont] else ""
             except (ValueError, IndexError): pass
-            
+
             try:
                 idx_est = headers.index("estado")
-                estado = str(row[idx_est]).strip() if row[idx_est] else ""
+                estado = _clean_text(row[idx_est]) if row[idx_est] else ""
             except (ValueError, IndexError): pass
-            
+
             try:
                 idx_cot = headers.index("cotizado por")
-                cotizado_por = str(row[idx_cot]).strip() if row[idx_cot] else ""
+                cotizado_por = _clean_text(row[idx_cot]) if row[idx_cot] else ""
             except (ValueError, IndexError): pass
-            
+
             try:
                 idx_fecha = headers.index("fecha de aprobación")
-                fecha_aprobacion = str(row[idx_fecha]).strip() if row[idx_fecha] else None
+                fecha_aprobacion = _clean_text(row[idx_fecha]) if row[idx_fecha] else None
             except (ValueError, IndexError): pass
-            
+
+            if fecha_aprobacion is None:
+                try:
+                    idx_fecha = headers.index("fecha de aprobacion")
+                    fecha_aprobacion = _clean_text(row[idx_fecha]) if row[idx_fecha] else None
+                except (ValueError, IndexError): pass
+
             break
+
+    if not empresa:
+        (
+            fallback_empresa,
+            fallback_obra,
+            contacto,
+            cotizado_por,
+            fecha_aprobacion,
+        ) = _parse_header_block_from_text(text, contacto, cotizado_por, estado, fecha_aprobacion)
+        if fallback_empresa:
+            empresa = fallback_empresa
+            potential_obra_from_empresa = fallback_obra
+            raw_empresa_found = _clean_text(f"{empresa} / {fallback_obra}" if fallback_obra else empresa)
 
     # Fallback robusto si no se encontró en tabla (para PDFs con texto plano o tablas no detectadas)
     if not empresa:
@@ -204,20 +321,20 @@ def _parse_header_and_totals(pdf) -> PdfPresupuesto:
         )
         if header_block_match:
             header_line = " ".join(header_block_match.group(1).split())
-            
+
             # Estados esperados para delimitar
             estados_list = ["Parcial", "Enviado", "Anulado", "Aprobado", "Pendiente"]
             estado_found = next((e for e in estados_list if f" {e} " in f" {header_line} "), None)
-            
+
             if estado_found:
                 before_estado, after_estado = header_line.split(estado_found, 1)
-                
+
                 # El contacto suele ser las últimas 2 palabras antes del estado
                 tokens = before_estado.split()
                 if len(tokens) >= 3:
                     contacto = contacto or " ".join(tokens[-2:])
                     raw_empresa_found = " ".join(tokens[:-2])
-                    
+
                     if "/" in raw_empresa_found:
                         parts = raw_empresa_found.split("/", 1)
                         empresa = parts[0].strip()
@@ -225,7 +342,7 @@ def _parse_header_and_totals(pdf) -> PdfPresupuesto:
                     else:
                         empresa = raw_empresa_found.strip()
                         potential_obra_from_empresa = ""
-                
+
                 estado = estado or estado_found
 
     # Si aún no tenemos raw_empresa_found pero sí empresa
@@ -266,7 +383,7 @@ def _parse_header_and_totals(pdf) -> PdfPresupuesto:
 
     return PdfPresupuesto(
         numero=numero, empresa=empresa, contacto=contacto,
-        estado=estado, cotizado_por=cotizado_por, 
+        estado=estado, cotizado_por=cotizado_por,
         fecha_aprobacion=fecha_aprobacion,
         total_unidades=total_u, total_importe=total_imp,
         total_m2=total_m2, total_ml=total_ml, peso_estimado_kg=peso,
@@ -279,7 +396,7 @@ def _parse_consolidated(page1) -> List[PdfItem]:
     """Extrae la lista maestra de ítems de la primera tabla de consolidado."""
     items: List[PdfItem] = []
     tables = page1.extract_tables()
-    
+
     for table in tables:
         # Identificamos tabla por el header "Descripción"
         headers = [str(h).lower() if h else "" for h in table[0]]
@@ -289,11 +406,11 @@ def _parse_consolidated(page1) -> List[PdfItem]:
                 if not row or len(row) < 3: continue
                 item_no_raw = str(row[0]).strip()
                 if not item_no_raw.isdigit(): continue
-                
+
                 desc = str(row[1]).strip().replace("\n", " ")
                 cant = int(parse_ar(row[2]))
                 total = parse_ar(row[3])
-                
+
                 items.append(PdfItem(
                     numero_item=int(item_no_raw),
                     descripcion=desc,
@@ -308,153 +425,227 @@ def _parse_detailed_all_pages(pdf, items: List[PdfItem]):
     """Itera sobre todas las páginas y combina parsing por tablas + texto."""
     item_map = {it.numero_item: it for it in items}
     current_item_no = None
-    seen_panos: set[tuple] = set()
-    subtotal_found: set[int] = set()
+
+    # Cache para deduplicar filas físicas leídas por dos métodos (tabla/texto)
+    # pero PERMITIR duplicados legítimos si aparecen múltiples veces en la página.
 
     for page_idx, page in enumerate(pdf.pages, start=1):
-        rows_from_tables = 0
-        rows_from_text = 0
-        rows_omitted = 0
+        if page_idx == 1: continue # El detalle empieza en pág 2+ usualmente
+
         page_text = page.extract_text() or ""
         page_lines = [ln.strip() for ln in page_text.splitlines() if ln.strip()]
 
-        # Pista visual: si al inicio de la página aparece encabezado de ítem,
-        # actualizar estado antes de parsear tablas.
-        for probe_line in page_lines[:8]:
-            maybe_item = _detect_item_start(probe_line, item_map, None)
-            if maybe_item is not None:
-                current_item_no = maybe_item
+        # 1. Detectar si el item cambia al inicio de página
+        for probe in page_lines[:10]:
+            if _is_detail_continuation_line(probe):
+                break
+            maybe = _detect_item_start(probe, item_map, None)
+            if maybe:
+                current_item_no = maybe
                 break
 
-        # A) Parsing por tablas
+        # Listas para fusionar al final de la página
+        table_candidates = [] # list of (item_no, obj)
+        text_candidates = []  # list of (item_no, obj)
+
+        # A) Parsing por TABLAS
         table_objs = page.find_tables()
+        # Ordenar por posición vertical
+        table_objs.sort(key=lambda t: t.bbox[1])
+
+        temp_item_table = current_item_no
         for t_obj in table_objs:
+            # Re-detectar item antes de cada tabla
+            top = t_obj.bbox[1]
+            above_text = ""
+            if top > 0:
+                above_area = (0, max(0, top - 80), page.width, top)
+                if above_area[1] < above_area[3]:
+                    above_text = page.within_bbox(above_area).extract_text() or ""
+            temp_item_table = _detect_item_start(above_text, item_map, temp_item_table)
+
             data = t_obj.extract()
-            if not data or not data[0]:
-                continue
+            if not data: continue
 
             headers = [str(h).lower() if h else "" for h in data[0]]
+            is_detail = "ancho" in headers and "alto" in headers
 
-            if "ancho" in headers and "alto" in headers:
-                top = t_obj.bbox[1]
-                above_area = (0, max(0, top - 100), page.width, top)
-                above_text = page.within_bbox(above_area).extract_text() or ""
-                current_item_no = _detect_item_start(above_text, item_map, current_item_no)
-                if current_item_no is None:
+            for row in data[1:]:
+                if not any(row): continue
+                row_text = " ".join(str(c).strip() for c in row if c).strip()
+
+                # Cambio de item dentro de la tabla? (Raro pero posible)
+                maybe = _detect_item_start(row_text, item_map, None)
+                if maybe:
+                    temp_item_table = maybe
                     continue
 
-                target_item = item_map[current_item_no]
-                for row in data[1:]:
-                    if not row or not any(row):
-                        continue
-                    row_text = " ".join(str(c).strip() for c in row if c).strip()
-                    maybe_item = _detect_item_start(row_text, item_map, None)
-                    if maybe_item is not None:
-                        current_item_no = maybe_item
-                        target_item = item_map[current_item_no]
+                if temp_item_table is None: continue
 
-                    subtotal = _parse_subtotal_line(row_text)
-                    if subtotal and current_item_no in item_map:
-                        qty, subtotal_m2, subtotal_pesos = subtotal
-                        target_item.cantidad = target_item.cantidad or qty
-                        if subtotal_m2 > 0:
-                            target_item.total_m2 = subtotal_m2
-                        if subtotal_pesos > 0:
-                            target_item.total_pesos = subtotal_pesos
-                        subtotal_found.add(current_item_no)
-                        continue
-
+                # Paño
+                if is_detail:
                     pane = _parse_pane_from_cells(row)
-                    if pane and current_item_no in item_map:
-                        if _append_pane_if_new(item_map[current_item_no], pane, current_item_no, seen_panos):
-                            rows_from_tables += 1
-                        else:
-                            rows_omitted += 1
+                    if pane:
+                        table_candidates.append((temp_item_table, pane))
                         continue
 
-                    adicional = _parse_adicional_from_cells(row)
-                    if adicional and current_item_no in item_map:
-                        _append_adicional(item_map[current_item_no], adicional)
-                        rows_from_tables += 1
+                # Adicional
+                adic = _parse_adicional_from_cells(row)
+                if adic:
+                    table_candidates.append((temp_item_table, adic))
 
-        # B) Parsing por texto completo
+        # B) Parsing por TEXTO
+        temp_item_text = current_item_no
         for line in page_lines:
-            maybe_item = _detect_item_start(line, item_map, None)
-            if maybe_item is not None:
-                current_item_no = maybe_item
+            maybe = _detect_item_start(line, item_map, None)
+            if maybe:
+                temp_item_text = maybe
+                # No 'continue' porque la misma línea puede ser un paño (raro pero por las dudas)
 
-            subtotal = _parse_subtotal_line(line)
-            if subtotal and current_item_no in item_map:
-                qty, subtotal_m2, subtotal_pesos = subtotal
-                target_item = item_map[current_item_no]
-                target_item.cantidad = target_item.cantidad or qty
-                if subtotal_m2 > 0:
-                    target_item.total_m2 = subtotal_m2
-                if subtotal_pesos > 0:
-                    target_item.total_pesos = subtotal_pesos
-                subtotal_found.add(current_item_no)
+            # Subtotal/Cierre (para registrar totales esperados)
+            subt = _parse_subtotal_line(line)
+            if subt and temp_item_text in item_map:
+                qty, m2, pesos = subt
+                it = item_map[temp_item_text]
+                it.cantidad = it.cantidad or qty
+                if m2 > 0: it.total_m2 = m2
+                if pesos > 0: it.total_pesos = pesos
                 continue
 
+            if temp_item_text is None: continue
+
+            # Paño
             pane = _parse_pane_from_text(line)
-            if pane and current_item_no in item_map:
-                if _append_pane_if_new(item_map[current_item_no], pane, current_item_no, seen_panos):
-                    rows_from_text += 1
-                else:
-                    rows_omitted += 1
+            if pane:
+                text_candidates.append((temp_item_text, pane))
                 continue
 
-            adicional = _parse_adicional_from_text(line)
-            if adicional and current_item_no in item_map:
-                _append_adicional(item_map[current_item_no], adicional)
-                rows_from_text += 1
+            # Adicional
+            adic = _parse_adicional_from_text(line)
+            if adic:
+                text_candidates.append((temp_item_text, adic))
 
-        if DEBUG_DETAIL_PARSE:
-            logger.debug(
-                "[pdf-detail] página=%s item_actual=%s tablas=%s texto=%s omitidas=%s",
-                page_idx,
-                current_item_no,
-                rows_from_tables,
-                rows_from_text,
-                rows_omitted,
-            )
+        # C) FUSIONAR RESULTADOS DE LA PÁGINA
+        # Para cada (item_no, tipo, contenido), tomar el MAX de ocurrencias entre tabla y texto.
+        # Esto asegura que si la tabla perdió filas pero el texto no (o viceversa), capturamos todo.
+        # Y si ambos detectaron lo mismo, no lo duplicamos.
 
-    if DEBUG_DETAIL_PARSE and item_map:
-        for item_no in sorted(item_map):
-            logger.debug(
-                "[pdf-detail] item=%s subtotal_detectado=%s panos=%s adicionales=%s",
-                item_no,
-                item_no in subtotal_found,
-                len(item_map[item_no].panos),
-                len(item_map[item_no].adicionales),
-            )
+        all_item_nos = set(c[0] for c in table_candidates) | set(c[0] for c in text_candidates)
+        if temp_item_text: all_item_nos.add(temp_item_text)
+
+        for it_no in sorted(all_item_nos):
+            if it_no not in item_map: continue
+            target_item = item_map[it_no]
+
+            # Agrupar candidatos por "contenido"
+            def _norm_denom(d):
+                """Normalize denominacion: None, '-', '' all become ''."""
+                s = (d or "").strip()
+                return "" if s == "-" else s
+
+            def get_key(obj):
+                if isinstance(obj, PdfPane):
+                    return ("PANE", obj.cantidad, obj.ancho_mm, obj.alto_mm, q2(obj.superficie_m2), q2(obj.perimetro_ml), _norm_denom(obj.denominacion), q2(obj.precio_total))
+                else:
+                    return ("ADIC", obj.cantidad, obj.descripcion.strip(), q2(obj.precio_total))
+
+            it_table_objs = [c[1] for c in table_candidates if c[0] == it_no]
+            it_text_objs = [c[1] for c in text_candidates if c[0] == it_no]
+
+            table_counts = Counter(get_key(o) for o in it_table_objs)
+            text_counts = Counter(get_key(o) for o in it_text_objs)
+
+            all_keys = set(table_counts.keys()) | set(text_counts.keys())
+
+            rows_added_this_page = 0
+            for k in all_keys:
+                count = max(table_counts[k], text_counts[k])
+                # Buscar el objeto original para copiar (preferir el de tabla si existe)
+                sample_obj = next((o for o in it_table_objs if get_key(o) == k), None)
+                if not sample_obj:
+                    sample_obj = next((o for o in it_text_objs if get_key(o) == k), None)
+
+                for _ in range(count):
+                    if isinstance(sample_obj, PdfPane):
+                        new_pane = PdfPane(**sample_obj.__dict__)
+                        new_pane.row_no = len(target_item.panos) + 1
+                        target_item.panos.append(new_pane)
+                    else:
+                        new_adic = PdfAdicional(**sample_obj.__dict__)
+                        new_adic.row_no = len(target_item.adicionales) + 1
+                        target_item.adicionales.append(new_adic)
+                    rows_added_this_page += 1
+
+            if DEBUG_DETAIL_PARSE:
+                logger.debug("[pdf-detail] pág=%s item=%s filas_agregadas=%s", page_idx, it_no, rows_added_this_page)
+
+        # Actualizar estado para la siguiente página
+        current_item_no = temp_item_text or current_item_no
 
 
-PANE_TEXT_RE = re.compile(
-    r"^\s*(\d+)\s+(\d{2,5})\s+(\d{2,5})\s+([\d\.,]+)\s+([\d\.,]+)\s+([A-Za-z0-9_\-/.]+)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$"
+# 8-field variant: cantidad ancho alto sup per denom unitario total
+PANE_TEXT_RE_8 = re.compile(
+    r"^\s*(\d+)\s+(\d{2,5})\s+(\d{2,5})\s+([\d\.,]+)\s+([\d\.,]+)\s+(.+?)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$"
+)
+# 7-field variant: cantidad ancho alto sup per unitario total (no denom column)
+PANE_TEXT_RE_7 = re.compile(
+    r"^\s*(\d+)\s+(\d{2,5})\s+(\d{2,5})\s+([\d\.,]+)\s+([\d\.,]+)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$"
 )
 ADICIONAL_TEXT_RE = re.compile(r"^\s*(\d+)\s+(.+?)\s+\$?\s*([\d\.,]+)\s+\$?\s*([\d\.,]+)\s*$")
 SUBTOTAL_RE = re.compile(r"^\s*(\d+)\s+paños?\s+([\d\.,]+)\s+[\d\.,]+\s+\$?\s*([\d\.,]+)\s*$", re.IGNORECASE)
+TOT_RE = re.compile(r"^\s*Totales?\s*$", re.IGNORECASE)
+
+
+def _is_detail_continuation_line(line: str) -> bool:
+    stripped = (line or "").strip()
+    if not stripped:
+        return False
+    lower = stripped.lower()
+    if "cantidad" in lower and "ancho" in lower and "alto" in lower:
+        return True
+    if TOT_RE.match(stripped):
+        return True
+    if _parse_subtotal_line(stripped):
+        return True
+    return _parse_pane_from_text(stripped) is not None
 
 
 def _detect_item_start(text: str, item_map: Dict[int, PdfItem], default: Optional[int]) -> Optional[int]:
-    line = (text or "").strip()
-    if not line:
-        return default
-    if "$" in line:
-        return default
-    if _parse_subtotal_line(line):
+    """Detect if text contains an item header line.
+
+    When text is multi-line (e.g. above_text from a bounding box), check each
+    line individually and return the LAST detected item number (the one closest
+    to the table below).
+    """
+    raw = (text or "").strip()
+    if not raw:
         return default
 
-    m = re.match(r"^(\d+)\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", line)
-    if m:
-        item_no = int(m.group(1))
-        if item_no in item_map:
-            return item_no
-    if line.isdigit():
-        item_no = int(line)
-        if item_no in item_map:
-            return item_no
-    return default
+    # Split into individual lines and check each one
+    lines = raw.splitlines()
+    last_found = default
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if "$" in line:
+            continue
+        if _parse_subtotal_line(line):
+            continue
+
+        m = re.match(r"^(\d+)\s+[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]", line)
+        if m:
+            item_no = int(m.group(1))
+            if item_no in item_map:
+                last_found = item_no
+                continue
+        if line.isdigit():
+            item_no = int(line)
+            if item_no in item_map:
+                last_found = item_no
+
+    return last_found
 
 
 def _parse_subtotal_line(line: str) -> Optional[tuple[int, Decimal, Decimal]]:
@@ -490,20 +681,36 @@ def _parse_pane_from_cells(row: list[Any]) -> Optional[PdfPane]:
 
 
 def _parse_pane_from_text(line: str) -> Optional[PdfPane]:
-    m = PANE_TEXT_RE.match((line or "").strip())
-    if not m:
-        return None
-    return PdfPane(
-        row_no=0,
-        cantidad=int(m.group(1)),
-        ancho_mm=int(m.group(2)),
-        alto_mm=int(m.group(3)),
-        superficie_m2=parse_ar(m.group(4)),
-        perimetro_ml=parse_ar(m.group(5)),
-        denominacion=m.group(6),
-        precio_unitario=parse_ar(m.group(7)),
-        precio_total=parse_ar(m.group(8)),
-    )
+    stripped = (line or "").strip()
+    # Try 8-field variant first (with denomination column)
+    m = PANE_TEXT_RE_8.match(stripped)
+    if m:
+        return PdfPane(
+            row_no=0,
+            cantidad=int(m.group(1)),
+            ancho_mm=int(m.group(2)),
+            alto_mm=int(m.group(3)),
+            superficie_m2=parse_ar(m.group(4)),
+            perimetro_ml=parse_ar(m.group(5)),
+            denominacion=m.group(6),
+            precio_unitario=parse_ar(m.group(7)),
+            precio_total=parse_ar(m.group(8)),
+        )
+    # Try 7-field variant (no denomination column)
+    m = PANE_TEXT_RE_7.match(stripped)
+    if m:
+        return PdfPane(
+            row_no=0,
+            cantidad=int(m.group(1)),
+            ancho_mm=int(m.group(2)),
+            alto_mm=int(m.group(3)),
+            superficie_m2=parse_ar(m.group(4)),
+            perimetro_ml=parse_ar(m.group(5)),
+            denominacion=None,
+            precio_unitario=parse_ar(m.group(6)),
+            precio_total=parse_ar(m.group(7)),
+        )
+    return None
 
 
 def _parse_adicional_from_cells(row: list[Any]) -> Optional[PdfAdicional]:
@@ -517,6 +724,8 @@ def _parse_adicional_from_cells(row: list[Any]) -> Optional[PdfAdicional]:
         return None
     desc = str(row[1]).strip() if len(row) > 1 and row[1] else ""
     if not desc or desc == "-":
+        return None
+    if not any(ch.isalpha() for ch in desc):
         return None
     non_empty = [str(c).strip() for c in row if c and str(c).strip() and str(c).strip() != "-"]
     if len(non_empty) < 3:
@@ -540,6 +749,8 @@ def _parse_adicional_from_text(line: str) -> Optional[PdfAdicional]:
     qty = int(m.group(1))
     desc = m.group(2).strip()
     if not desc:
+        return None
+    if not any(ch.isalpha() for ch in desc):
         return None
     p_uni = parse_ar(m.group(3))
     p_tot = parse_ar(m.group(4))
@@ -592,7 +803,7 @@ def _backfill_item_totals(items: List[PdfItem]) -> None:
 
 def _validate(budget: ParsedBudget) -> None:
     warnings: List[str] = []
-    TOL = Decimal("0.10") 
+    TOL = Decimal("0.10")
 
     for item in budget.items:
         if not item.panos and not item.adicionales:
@@ -620,7 +831,7 @@ def _validate(budget: ParsedBudget) -> None:
         sum_m2_global = q2(sum((it.total_m2 for it in budget.items), Decimal("0")))
         if abs(sum_m2_global - q2(hdr.total_m2)) > Decimal("0.50"):
             warnings.append(f"Total m² general desigual: ítems {sum_m2_global} vs encabezado {q2(hdr.total_m2)}")
-    
+
     budget.warnings.extend(warnings)
 
 
