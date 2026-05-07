@@ -14,6 +14,7 @@ from models.comprobante import Comprobante, TipoComprobante
 from models.afectacion_acopio import AfectacionAcopio
 from models.documento import Documento
 from models.extraccion_ia import ExtraccionIA
+from models.precio_referencia import PrecioReferencia
 
 __all__ = [
     "BaseModel",
@@ -35,4 +36,5 @@ __all__ = [
     "AfectacionAcopio",
     "Documento",
     "ExtraccionIA",
+    "PrecioReferencia",
 ]

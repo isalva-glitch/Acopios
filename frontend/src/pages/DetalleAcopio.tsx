@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import apiClient from '../api/client';
+import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
 
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ function DetalleAcopio() {
     const [imputationSuccess, setImputationSuccess] = useState(false);
     const [anulandoId, setAnulandoId] = useState<number | null>(null);
     const [anulacionError, setAnulacionError] = useState<string | null>(null);
+    const [showPreciosModal, setShowPreciosModal] = useState(false);
 
     useEffect(() => {
         loadAcopio();
@@ -134,20 +136,20 @@ function DetalleAcopio() {
         <div className="detalle-acopio">
             <h2>Acopio - Presupuesto SPF #{acopio.v_presupuesto_id || acopio.numero}</h2>
 
-            <div className="form-section">
-                <h3>Información General</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-                    <div>
+            <div className="form-section detalle-general-section">
+                <div className="detalle-general-header">
+                    <h3>Información General</h3>
+                </div>
+                <div className="detalle-general-grid">
+                    <div className="detalle-general-data">
                         <strong>Cliente:</strong> {avanceComercial?.cliente || acopio.obra?.cliente?.nombre || `SPF ID: ${acopio.cliente_id}`}<br />
                         <strong>Obra:</strong> {avanceComercial?.obra || acopio.obra?.nombre || `Presupuesto: ${acopio.v_presupuesto_id}`}<br />
-                        <strong>Fecha Alta:</strong> {new Date(acopio.fecha_alta).toLocaleDateString()}
+                        <strong>Fecha Alta:</strong> {new Date(acopio.fecha_alta).toLocaleDateString()}<br />
+                        <strong>Estado:</strong> {acopio.estado}
                     </div>
-                    <div>
-                        <strong>Estado:</strong> {acopio.estado}<br />
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div className="detalle-actions">
                         {acopio.estado === 'CONSUMIDO' ? (
-                            <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>
+                            <span className="material-consumido">
                                 ✓ Material Consumido
                             </span>
                         ) : (
@@ -158,6 +160,12 @@ function DetalleAcopio() {
                                 {showImputer ? 'Cancelar Imputación' : 'Imputar Nuevo Pedido'}
                             </button>
                         )}
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={() => setShowPreciosModal(true)}
+                        >
+                            Precios de referencia
+                        </button>
                     </div>
                 </div>
             </div>
@@ -454,6 +462,17 @@ function DetalleAcopio() {
                         </table>
                     </div>
                 </div>
+            )}
+
+            {showPreciosModal && (
+                <PreciosReferenciaModal 
+                    acopioId={Number(id)} 
+                    onClose={() => setShowPreciosModal(false)}
+                    onSave={(data) => {
+                        console.log('Precios guardados:', data);
+                        // Opcional: mostrar notificación de éxito
+                    }}
+                />
             )}
         </div>
     );

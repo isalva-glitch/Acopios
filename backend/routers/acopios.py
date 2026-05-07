@@ -5,6 +5,13 @@ from typing import List, Optional
 from pydantic import BaseModel
 from decimal import Decimal
 
+"""Acopios router."""
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from pydantic import BaseModel
+from decimal import Decimal
+
 from database import get_db
 from models import Acopio
 from storage import save_file
@@ -13,6 +20,9 @@ from integrations.pdf import extract_budget_pdf, parsed_budget_to_dict
 from services import acopio_service
 from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
+from models import Acopio, PrecioReferencia
+from schemas.precio_referencia import PrecioReferenciaResponse, PrecioReferenciaCreate, PrecioReferenciaUpdate
+
 
 router = APIRouter()
 
@@ -448,3 +458,47 @@ async def get_acopio_avance_comercial(
         return avance
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{acopio_id}/precios-referencia", response_model=Optional[PrecioReferenciaResponse])
+async def get_precios_referencia(
+    acopio_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get reference prices for an acopio."""
+    precios = db.query(PrecioReferencia).filter(PrecioReferencia.acopio_id == acopio_id).first()
+    return precios
+
+
+@router.post("/{acopio_id}/precios-referencia", response_model=PrecioReferenciaResponse)
+async def set_precios_referencia(
+    acopio_id: int,
+    payload: PrecioReferenciaUpdate,
+    db: Session = Depends(get_db)
+):
+    """Set or update reference prices for an acopio."""
+    precios = db.query(PrecioReferencia).filter(PrecioReferencia.acopio_id == acopio_id).first()
+    
+    if precios:
+        # Update existing
+        for key, value in payload.model_dump().items():
+            setattr(precios, key, value)
+    else:
+        # Create new
+        precios = PrecioReferencia(
+            acopio_id=acopio_id,
+            **payload.model_dump()
+        )
+        db.add(precios)
+    
+    try:
+        db.commit()
+        db.refresh(precios)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save reference prices: {str(e)}"
+        )
+    
+    return precios

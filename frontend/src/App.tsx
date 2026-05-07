@@ -9,6 +9,7 @@ import './App.css'
 function AppLayout() {
     const location = useLocation()
     const isHome = location.pathname === '/'
+    const isDetalleAcopio = /^\/acopios\/[^/]+$/.test(location.pathname) && location.pathname !== '/acopios/alta'
 
     return (
         <div className="app">
@@ -26,7 +27,6 @@ function AppLayout() {
                                 <NavLink
                                     to="/acopios"
                                     className={({ isActive }) => {
-                                        const isDetalleAcopio = /^\/acopios\/[^/]+$/.test(location.pathname)
                                         return isActive || isDetalleAcopio ? 'active' : ''
                                     }}
                                 >
@@ -49,7 +49,7 @@ function AppLayout() {
             )}
 
             <main className="main-content">
-                <div className="container">
+                <div className={isDetalleAcopio ? 'container container-acopio' : 'container'}>
                     <ErrorBoundary>
                         <Routes>
                             <Route path="/" element={<Home />} />

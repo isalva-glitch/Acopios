@@ -19,6 +19,23 @@ export interface Acopio {
     obra?: string | null;
 }
 
+export interface PrecioReferencia {
+    id?: number;
+    acopio_id: number;
+    vidrio_exterior: number;
+    vidrio_interior: number;
+    camara_estructural: number;
+    pulido: number;
+    fason_templado_exterior: number;
+    pegado_bastidor: number;
+    camara_normal: number;
+    opacificado_perimetral: number;
+    opacificado_total: number;
+    camara_offset: number;
+    created_at?: string;
+    updated_at?: string;
+}
+
 export interface Pedido {
     id: number;
     numero: string;
