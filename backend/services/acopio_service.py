@@ -9,6 +9,7 @@ from models import (
     Documento, ExtraccionIA, EstadoAcopio
 )
 from services.acopio_creation_service import AcopioCreationService
+from services.proceso_inference import infer_item_processes_from_texts
 
 
 def get_or_create_cliente(db: Session, nombre: str) -> Cliente:
@@ -94,6 +95,18 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
         item_m2 = Decimal(str(item_data.get("total_m2", 0)))
         item_ml = Decimal(str(item_data.get("total_ml", 0)))
         item_pesos = Decimal(str(item_data.get("total_pesos", 0)))
+        item_panos_data = [
+            pano_data
+            for pano_data in extraction_package.get("panos", [])
+            if pano_data.get("item_index") == idx + 1
+        ]
+        item_process_flags = infer_item_processes_from_texts([
+            item_data.get("descripcion"),
+            item_data.get("material"),
+            item_data.get("tipologia"),
+            *(pano_data.get("denominacion") for pano_data in item_panos_data),
+            *(adicional.get("descripcion") for adicional in item_data.get("adicionales", [])),
+        ])
         
         item = AcopioItem(
             acopio_id=acopio.id,
@@ -107,25 +120,30 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
             saldo_m2=item_m2,
             saldo_ml=item_ml,
             saldo_pesos=item_pesos,
-            saldo_cantidad=item_data.get("cantidad", 0)
+            saldo_cantidad=item_data.get("cantidad", 0),
+            procesos_autodetectados=True,
+            **{
+                f"proceso_{field}": enabled
+                for field, enabled in item_process_flags.items()
+            }
         )
         db.add(item)
         db.flush()
         
         # Create paños for this item  (item_index is 1-based in the extractor)
-        for pano_data in extraction_package.get("panos", []):
-            if pano_data.get("item_index") == idx + 1:
-                pano = AcopioItemPano(
-                    item_id=item.id,
-                    cantidad=pano_data["cantidad"],
-                    ancho=Decimal(str(pano_data["ancho"])),
-                    alto=Decimal(str(pano_data["alto"])),
-                    superficie_m2=Decimal(str(pano_data["superficie_m2"])),
-                    perimetro_ml=Decimal(str(pano_data["perimetro_ml"])),
-                    precio_unitario=Decimal(str(pano_data.get("precio_unitario", 0))),
-                    precio_total=Decimal(str(pano_data.get("precio_total", 0)))
-                )
-                db.add(pano)
+        for pano_data in item_panos_data:
+            pano = AcopioItemPano(
+                item_id=item.id,
+                cantidad=pano_data["cantidad"],
+                ancho=Decimal(str(pano_data["ancho"])),
+                alto=Decimal(str(pano_data["alto"])),
+                superficie_m2=Decimal(str(pano_data["superficie_m2"])),
+                perimetro_ml=Decimal(str(pano_data["perimetro_ml"])),
+                precio_unitario=Decimal(str(pano_data.get("precio_unitario", 0))),
+                precio_total=Decimal(str(pano_data.get("precio_total", 0))),
+                denominacion=pano_data.get("denominacion")
+            )
+            db.add(pano)
     
     # Create documento
     for doc_data in extraction_package.get("documentos", []):

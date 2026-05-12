@@ -4,7 +4,8 @@ import apiClient from '../api/client';
 import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
 import {
     PRECIO_REFERENCIA_PROCESOS,
-    type PrecioReferenciaProcesoKey
+    type PrecioReferenciaProcesoKey,
+    type PrecioReferenciaProcesoUnidad
 } from '../constants/preciosReferencia';
 
 function DetalleAcopio() {
@@ -155,6 +156,13 @@ function DetalleAcopio() {
         });
     };
 
+    const getItemProcesoCantidad = (
+        item: any,
+        unidad: PrecioReferenciaProcesoUnidad
+    ) => Number(item?.totals?.[unidad] || 0);
+
+    const formatProcesoCantidad = (value: number) => value.toFixed(2);
+
     const handleToggleItemProceso = async (
         itemId: number,
         processKey: PrecioReferenciaProcesoKey,
@@ -181,7 +189,11 @@ function DetalleAcopio() {
                     ...prev,
                     items: prev.items.map((current: any) => (
                         current.id === itemId
-                            ? { ...current, procesos: response.data.procesos }
+                            ? {
+                                ...current,
+                                procesos: response.data.procesos,
+                                procesos_detalle: response.data.procesos_detalle
+                            }
                             : current
                     ))
                 };
@@ -493,12 +505,18 @@ function DetalleAcopio() {
                             <div className="item-processes-list">
                                 {PRECIO_REFERENCIA_PROCESOS.map((proceso) => {
                                     const savingKey = `${item.id}:${proceso.key}`;
+                                    const checked = Boolean(item.procesos?.[proceso.key]);
+                                    const cantidad = getItemProcesoCantidad(item, proceso.unidad);
 
                                     return (
-                                        <label className="item-process-check" key={proceso.key} title={proceso.label}>
+                                        <label
+                                            className={`item-process-check${checked ? ' is-checked' : ''}`}
+                                            key={proceso.key}
+                                            title={`${proceso.label}: ${formatProcesoCantidad(cantidad)} ${proceso.unidad}`}
+                                        >
                                             <input
                                                 type="checkbox"
-                                                checked={Boolean(item.procesos?.[proceso.key])}
+                                                checked={checked}
                                                 disabled={Boolean(itemProcessSaving[savingKey])}
                                                 onChange={(event) => handleToggleItemProceso(
                                                     item.id,
@@ -506,7 +524,14 @@ function DetalleAcopio() {
                                                     event.target.checked
                                                 )}
                                             />
-                                            <span>{proceso.shortLabel}</span>
+                                            <span className="item-process-label">
+                                                <span className="item-process-name">{proceso.shortLabel}</span>
+                                                <span className="item-process-value">
+                                                    {checked
+                                                        ? `${formatProcesoCantidad(cantidad)} ${proceso.unidad}`
+                                                        : proceso.unidad}
+                                                </span>
+                                            </span>
                                         </label>
                                     );
                                 })}

@@ -37,6 +37,7 @@ class AcopioItem(BaseModel):
     proceso_opacificado_perimetral = Column(Boolean, nullable=False, default=False)
     proceso_opacificado_total = Column(Boolean, nullable=False, default=False)
     proceso_camara_offset = Column(Boolean, nullable=False, default=False)
+    procesos_autodetectados = Column(Boolean, nullable=False, default=False)
     
     # Foreign keys
     acopio_id = Column(Integer, ForeignKey("acopios.id"), nullable=False)

@@ -14,23 +14,13 @@ from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
 from models import Acopio, AcopioItem, PrecioReferencia
 from schemas.precio_referencia import PrecioReferenciaResponse, PrecioReferenciaCreate, PrecioReferenciaUpdate
+from services.proceso_inference import (
+    PROCESS_FIELDS,
+    PROCESS_UNITS,
+)
 
 
 router = APIRouter()
-
-
-PROCESS_FIELDS = (
-    "vidrio_exterior",
-    "vidrio_interior",
-    "camara_estructural",
-    "pulido",
-    "fason_templado_exterior",
-    "pegado_bastidor",
-    "camara_normal",
-    "opacificado_perimetral",
-    "opacificado_total",
-    "camara_offset",
-)
 
 
 def item_procesos_to_dict(item: AcopioItem) -> dict:
@@ -38,6 +28,23 @@ def item_procesos_to_dict(item: AcopioItem) -> dict:
         field: bool(getattr(item, f"proceso_{field}", False))
         for field in PROCESS_FIELDS
     }
+
+
+def item_procesos_detalle_to_dict(item: AcopioItem) -> dict:
+    detalle = {}
+    for field in PROCESS_FIELDS:
+        unidad = PROCESS_UNITS[field]
+        selected = bool(getattr(item, f"proceso_{field}", False))
+        item_total = item.total_m2 if unidad == "m2" else item.total_ml
+        total = float(item_total or 0)
+        detalle[field] = {
+            "activo": selected,
+            "unidad": unidad,
+            "cantidad": total if selected else 0,
+            "cantidad_item": total,
+        }
+
+    return detalle
 
 
 # Pydantic models
@@ -403,6 +410,7 @@ async def get_acopio_detail(
                     "unidades": item.saldo_cantidad or 0
                 },
                 "procesos": item_procesos_to_dict(item),
+                "procesos_detalle": item_procesos_detalle_to_dict(item),
                 "panos": [
                     {
                         "id": pano.id,
@@ -466,6 +474,7 @@ async def update_acopio_item_procesos(
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, f"proceso_{field}", bool(value))
+    item.procesos_autodetectados = True
 
     try:
         db.commit()
@@ -479,7 +488,8 @@ async def update_acopio_item_procesos(
 
     return {
         "id": item.id,
-        "procesos": item_procesos_to_dict(item)
+        "procesos": item_procesos_to_dict(item),
+        "procesos_detalle": item_procesos_detalle_to_dict(item),
     }
 
 

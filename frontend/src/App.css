@@ -346,7 +346,7 @@
 
 .acopio-item-card {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(250px, 310px);
+    grid-template-columns: minmax(0, 1fr) minmax(430px, 520px);
     gap: 1rem;
     align-items: stretch;
     margin-bottom: 1.5rem;
@@ -409,8 +409,13 @@
     border: 1px solid #dce4ea;
     border-radius: 4px;
     color: #2c3e50;
-    font-size: 0.78rem;
+    font-size: 0.8rem;
     line-height: 1.15;
+}
+
+.item-process-check.is-checked {
+    border-color: #8cc6ed;
+    background: #f6fbff;
 }
 
 .item-process-check input {
@@ -421,11 +426,31 @@
     accent-color: #3498db;
 }
 
-.item-process-check span {
+.item-process-label {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    width: 100%;
+}
+
+.item-process-name {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.item-process-value {
+    color: #52616b;
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.item-process-check.is-checked .item-process-value {
+    color: #1f6f9f;
 }
 
 .item-process-check:focus-within {
@@ -433,7 +458,7 @@
     box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.16);
 }
 
-.item-process-check input:disabled + span {
+.item-process-check input:disabled + .item-process-label {
     color: #95a5a6;
 }
 

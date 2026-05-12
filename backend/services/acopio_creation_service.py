@@ -11,6 +11,7 @@ from services import acopio_service
 from services.acopio_creation_models import (
     NormalizedAcopioData, NormalizedItem, NormalizedPano, NormalizedPresupuesto, NormalizedAdicional
 )
+from services.proceso_inference import infer_normalized_item_processes
 
 
 class AcopioCreationService:
@@ -213,6 +214,7 @@ class AcopioCreationService:
             
         # 5. Create Items & Panos
         for it_data in data.items:
+            process_flags = infer_normalized_item_processes(it_data)
             item = AcopioItem(
                 acopio_id=acopio.id,
                 numero_item=it_data.numero_item,
@@ -226,7 +228,12 @@ class AcopioCreationService:
                 saldo_m2=it_data.total_m2,
                 saldo_ml=it_data.total_ml,
                 saldo_pesos=it_data.total_pesos,
-                saldo_cantidad=it_data.cantidad
+                saldo_cantidad=it_data.cantidad,
+                procesos_autodetectados=True,
+                **{
+                    f"proceso_{field}": enabled
+                    for field, enabled in process_flags.items()
+                }
             )
             db.add(item)
             db.flush()

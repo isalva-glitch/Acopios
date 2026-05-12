@@ -23,6 +23,7 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Anulación de imputaciones con recálculo automático de saldos
 - ✅ Gestión de Precios de Referencia (Base y Actual) para control de rentabilidad
 - ✅ Panel de Procesos por Item (Templado, Laminado, Pulido, etc.) con guardado automático
+- ✅ Autodetección inicial de procesos por item al crear el acopio, con edición manual posterior
 - ✅ Interfaz de usuario optimizada (Alto contraste y scroll horizontal en tablas)
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
@@ -145,6 +146,27 @@ npm run dev
 4. Política de excedentes configurable: BLOCK | WARN | ALLOW
 5. Cambios de medidas son normales
 6. Cambios de material/tipología se registran explícitamente
+7. Los procesos asociados a precios de referencia se interpretan solo durante el alta del acopio
+8. Una vez creado el acopio, abrirlo o modificarlo no vuelve a reinterpretar procesos; los checks quedan bajo control manual
+
+## Procesos por Item
+
+Durante el alta desde PDF o SPF, el sistema interpreta el detalle de cada item usando descripción, material, tipología, denominación de paños y adicionales. Con esa lectura inicial marca los procesos detectados en el panel del item.
+
+La detección inicial no bloquea la operación manual: cualquier check puede marcarse o desmarcarse desde el detalle del acopio y ese valor queda persistido. Al volver a abrir el acopio no se reinterpreta el texto del item, para evitar que una decisión manual sea sobrescrita.
+
+Cada proceso toma la cantidad física correspondiente del item:
+
+- Vidrio Exterior: m2
+- Vidrio Interior: m2
+- Cámara Estructural: ml
+- Pulido: ml
+- Fasón Templado Exterior: m2
+- Pegado a Bastidor: ml
+- Cámara Normal: ml
+- Opacificado Perimetral: ml
+- Opacificado Total: m2
+- Cámara Offset: ml
 
 ## JSON Schema
 
@@ -161,4 +183,4 @@ El sistema implementa un motor de extracción de segunda generación que combina
 
 ## Licencia
 
-Propiedad de Fontela Cristales
+Propiedad de Ivan Salva
