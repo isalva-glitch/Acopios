@@ -16,10 +16,61 @@ def test_infers_processes_from_item_detail_text():
     ])
 
     assert result["vidrio_exterior"] is True
+    assert result["vidrio_interior"] is True
+    assert result["fason_templado_exterior"] is True
     assert result["camara_offset"] is True
     assert result["camara_normal"] is False
     assert result["pulido"] is True
     assert result["opacificado_total"] is True
+
+
+def test_dvh_marks_both_glasses_and_normal_camera():
+    result = infer_item_processes_from_texts([
+        "DVH 4+4",
+    ])
+
+    assert result["vidrio_exterior"] is True
+    assert result["vidrio_interior"] is True
+    assert result["camara_normal"] is True
+    assert result["fason_templado_exterior"] is False
+    assert result["pulido"] is False
+
+
+def test_plus_separates_only_known_processes():
+    result = infer_item_processes_from_texts([
+        "DVH 4+4 + Templado + Pulido",
+    ])
+
+    assert result["vidrio_exterior"] is True
+    assert result["vidrio_interior"] is True
+    assert result["camara_normal"] is True
+    assert result["fason_templado_exterior"] is True
+    assert result["pulido"] is True
+
+    laminated = infer_item_processes_from_texts([
+        "Laminado 4+4",
+    ])
+    assert all(value is False for value in laminated.values())
+
+
+def test_explicit_camera_normal_can_coexist_with_other_camera_processes():
+    result = infer_item_processes_from_texts([
+        "Camara Estructural + Camara Normal + Camara Offset",
+    ])
+
+    assert result["camara_estructural"] is True
+    assert result["camara_normal"] is True
+    assert result["camara_offset"] is True
+
+
+def test_generic_camera_means_normal_camera():
+    result = infer_item_processes_from_texts([
+        "DVH con Camara",
+    ])
+
+    assert result["camara_normal"] is True
+    assert result["camara_estructural"] is False
+    assert result["camara_offset"] is False
 
 
 def test_acopio_creation_marks_detected_processes_and_keeps_manual_uncheck(

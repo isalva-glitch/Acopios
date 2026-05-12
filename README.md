@@ -155,6 +155,15 @@ Durante el alta desde PDF o SPF, el sistema interpreta el detalle de cada item u
 
 La detección inicial no bloquea la operación manual: cualquier check puede marcarse o desmarcarse desde el detalle del acopio y ese valor queda persistido. Al volver a abrir el acopio no se reinterpreta el texto del item, para evitar que una decisión manual sea sobrescrita.
 
+Reglas interpretativas principales:
+
+- `DVH`, `doble vidriado` o `doble vidrio` marcan Vidrio Exterior, Vidrio Interior y Cámara Normal.
+- `Cámara` sin especificar Normal, Estructural u Offset se interpreta como Cámara Normal.
+- `Cámara Normal` explícita puede convivir con Cámara Estructural u Offset si también aparecen en el detalle.
+- `Templado`, `Templada`, `Templados`, `Templadas` o `Temp` marcan Fasón Templado Exterior.
+- El signo `+` separa partes del detalle, pero no crea procesos por sí mismo: solo se marcan procesos con palabras clave conocidas.
+- Medidas o composiciones como `4+4` no marcan procesos si no incluyen una palabra clave de proceso.
+
 Cada proceso toma la cantidad física correspondiente del item:
 
 - Vidrio Exterior: m2

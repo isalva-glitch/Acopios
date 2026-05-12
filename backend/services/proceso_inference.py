@@ -35,11 +35,13 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bvidrio\s+ext(?:erior)?\b",
         r"\bvidrio\s+exterior\b",
         r"\bvid\s+ext(?:erior)?\b",
+        r"\bv\s+ext(?:erior)?\b",
     ),
     "vidrio_interior": (
         r"\bvidrio\s+int(?:erior)?\b",
         r"\bvidrio\s+interior\b",
         r"\bvid\s+int(?:erior)?\b",
+        r"\bv\s+int(?:erior)?\b",
     ),
     "camara_estructural": (
         r"\bcamara\s+estructural\b",
@@ -56,6 +58,8 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bfason\s+templado\b",
         r"\bfason\s+temp\b",
         r"\bfason\s+ext(?:erior)?\b",
+        r"\btemplad[oa]s?\b",
+        r"\btemp\b",
     ),
     "pegado_bastidor": (
         r"\bpegad[oa]\s+(?:a\s+)?bastidor\b",
@@ -79,11 +83,19 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
     ),
 }
 
-_CAMARA_NORMAL_PATTERNS = (
-    r"\bcamara\s+normal\b",
-    r"\bcamara\b",
+_DVH_PATTERNS = (
     r"\bdvh\b",
     r"\bdoble\s+vidriado\b",
+    r"\bdoble\s+vidrio\b",
+)
+
+_CAMARA_NORMAL_EXPLICIT_PATTERNS = (
+    r"\bcamara\s+normal\b",
+)
+
+_CAMARA_NORMAL_GENERIC_PATTERNS = (
+    r"\bcamara\b",
+    *_DVH_PATTERNS,
 )
 
 
@@ -106,14 +118,29 @@ def infer_item_processes_from_texts(texts: Iterable[object]) -> dict:
     for field, patterns in _PROCESS_PATTERNS.items():
         inferred[field] = any(re.search(pattern, normalized) for pattern in patterns)
 
-    has_normal_camera = any(
+    has_dvh = any(
         re.search(pattern, normalized)
-        for pattern in _CAMARA_NORMAL_PATTERNS
+        for pattern in _DVH_PATTERNS
+    )
+    if has_dvh:
+        inferred["vidrio_exterior"] = True
+        inferred["vidrio_interior"] = True
+
+    has_explicit_normal_camera = any(
+        re.search(pattern, normalized)
+        for pattern in _CAMARA_NORMAL_EXPLICIT_PATTERNS
+    )
+    has_generic_normal_camera = any(
+        re.search(pattern, normalized)
+        for pattern in _CAMARA_NORMAL_GENERIC_PATTERNS
     )
     inferred["camara_normal"] = (
-        has_normal_camera
-        and not inferred["camara_estructural"]
-        and not inferred["camara_offset"]
+        has_explicit_normal_camera
+        or (
+            has_generic_normal_camera
+            and not inferred["camara_estructural"]
+            and not inferred["camara_offset"]
+        )
     )
 
     return inferred
@@ -128,4 +155,3 @@ def infer_normalized_item_processes(item) -> dict:
         *(adicional.descripcion for adicional in item.adicionales),
     ]
     return infer_item_processes_from_texts(texts)
-
