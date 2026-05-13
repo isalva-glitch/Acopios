@@ -4,7 +4,6 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from integrations.spf import services as spf_services
 from models import Acopio
 from services.proceso_inference import PROCESS_FIELDS, PROCESS_UNITS
 
@@ -51,6 +50,7 @@ def _empty_process_totals() -> dict:
 
 
 def _build_acopio_process_totals(acopio: Acopio) -> tuple[dict, dict]:
+    """Sum process quantities from acopio items that have the process checked."""
     totals = _empty_process_totals()
     detail = {field: [] for field in PROCESS_FIELDS}
 
@@ -72,45 +72,93 @@ def _build_acopio_process_totals(acopio: Acopio) -> tuple[dict, dict]:
     return totals, detail
 
 
-def _snapshot_process_rows(imputacion) -> Optional[list[dict]]:
-    if not imputacion.procesos:
-        return None
+def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[dict, dict]:
+    """
+    Calculate process quantities consumed by each imputacion using proration.
 
-    return [
-        {
-            "proceso": proceso.proceso,
-            "unidad": proceso.unidad,
-            "cantidad": proceso.cantidad,
-            "origen": proceso.origen,
-        }
-        for proceso in imputacion.procesos
-    ]
+    For each acopio item that has a process marked, and for each imputacion
+    linked to that item, we prorate the process quantity proportionally:
 
+        pedido_proceso_qty = (pedido_qty_in_process_unit / item_total_qty_in_process_unit)
+                             * item_process_qty
 
-def _spf_process_rows(spf_db: Optional[Session], imputacion, warnings: list[str]) -> list[dict]:
-    pedido_numero = imputacion.pedido.numero if imputacion.pedido else None
-    if not spf_db or not pedido_numero:
-        warnings.append(
-            f"La imputacion {imputacion.id} no tiene desglose por proceso guardado."
-        )
-        return []
+    This avoids re-inferring processes from SPF text (which lacks process info)
+    and correctly attributes process quantities based on physical consumption.
 
-    try:
-        spf_pedido = spf_services.get_pedido_for_imputation(spf_db, str(pedido_numero))
-    except Exception as exc:
-        warnings.append(
-            f"No se pudo recalcular el pedido {pedido_numero} desde SPF: {exc}"
-        )
-        return []
+    Imputaciones without a specific acopio_item_id are prorated against the
+    whole acopio totals as a fallback.
+    """
+    totals = _empty_process_totals()
+    detail = {field: [] for field in PROCESS_FIELDS}
 
-    if not spf_pedido:
-        warnings.append(f"No se encontro el pedido {pedido_numero} en SPF.")
-        return []
+    # Build a lookup: item_id -> item object, for quick access
+    item_map = {item.id: item for item in acopio.items}
 
-    procesos = spf_pedido.get("procesos") or []
-    if not procesos:
-        warnings.append(f"El pedido {pedido_numero} no tiene procesos detectados.")
-    return procesos
+    # Compute acopio-level totals per unit for the whole-acopio fallback
+    acopio_total_m2 = sum(_to_decimal(it.total_m2) for it in acopio.items)
+    acopio_total_ml = sum(_to_decimal(it.total_ml) for it in acopio.items)
+
+    for imputacion in acopio.imputaciones:
+        pedido_id = imputacion.pedido_id
+        pedido_numero = imputacion.pedido.numero if imputacion.pedido else str(pedido_id)
+        imp_m2 = _to_decimal(imputacion.cantidad_m2)
+        imp_ml = _to_decimal(imputacion.cantidad_ml)
+
+        # Determine which items contribute to this imputacion
+        if imputacion.acopio_item_id and imputacion.acopio_item_id in item_map:
+            # Imputacion is linked to a specific item → prorate against that item
+            contributing_items = [(item_map[imputacion.acopio_item_id], imp_m2, imp_ml)]
+        else:
+            # No specific item link → distribute proportionally across all items
+            # using the imputacion totals vs acopio totals ratio
+            contributing_items = [
+                (
+                    item,
+                    # Share of this imputacion's m2/ml attributable to this item
+                    (imp_m2 * _to_decimal(item.total_m2) / acopio_total_m2)
+                    if acopio_total_m2 != 0 else Decimal("0"),
+                    (imp_ml * _to_decimal(item.total_ml) / acopio_total_ml)
+                    if acopio_total_ml != 0 else Decimal("0"),
+                )
+                for item in acopio.items
+            ]
+
+        for item, item_imp_m2, item_imp_ml in contributing_items:
+            item_total_m2 = _to_decimal(item.total_m2)
+            item_total_ml = _to_decimal(item.total_ml)
+
+            for field in PROCESS_FIELDS:
+                if not bool(getattr(item, f"proceso_{field}", False)):
+                    continue
+
+                unidad = PROCESS_UNITS[field]
+                item_process_qty = item_total_m2 if unidad == "m2" else item_total_ml
+                imp_qty_for_unit = item_imp_m2 if unidad == "m2" else item_imp_ml
+                item_total_for_unit = item_total_m2 if unidad == "m2" else item_total_ml
+
+                if item_total_for_unit == 0:
+                    warnings.append(
+                        f"Item {item.id} tiene proceso '{field}' activo pero su total en {unidad} es 0."
+                    )
+                    continue
+
+                # Prorate: how much of the process quantity does this imputacion consume?
+                ratio = imp_qty_for_unit / item_total_for_unit
+                cantidad = _round_qty(ratio * item_process_qty)
+
+                if cantidad == 0:
+                    continue
+
+                totals[field] += cantidad
+                detail[field].append({
+                    "imputacion_id": imputacion.id,
+                    "pedido_id": pedido_id,
+                    "pedido_numero": pedido_numero,
+                    "cantidad": _as_float(cantidad),
+                    "origen": "prorrateado",
+                })
+
+    return totals, detail
 
 
 def build_resumen_compensacion(
@@ -123,41 +171,9 @@ def build_resumen_compensacion(
     if not acopio:
         return None
 
-    warnings = []
+    warnings: list[str] = []
     acopio_totals, acopio_detail = _build_acopio_process_totals(acopio)
-    pedido_totals = _empty_process_totals()
-    pedido_detail = {field: [] for field in PROCESS_FIELDS}
-
-    for imputacion in acopio.imputaciones:
-        rows = _snapshot_process_rows(imputacion)
-        source = "snapshot"
-        if rows is None:
-            rows = _spf_process_rows(spf_db, imputacion, warnings)
-            source = "spf"
-
-        for row in rows:
-            field = row.get("proceso")
-            if field not in PROCESS_FIELDS:
-                warnings.append(f"Proceso desconocido en imputacion {imputacion.id}: {field}")
-                continue
-
-            unidad = row.get("unidad") or PROCESS_UNITS[field]
-            if unidad != PROCESS_UNITS[field]:
-                warnings.append(
-                    f"Unidad invalida para {field} en imputacion {imputacion.id}: {unidad}"
-                )
-                continue
-
-            cantidad = _to_decimal(row.get("cantidad"))
-            pedido_totals[field] += cantidad
-            if cantidad != 0:
-                pedido_detail[field].append({
-                    "imputacion_id": imputacion.id,
-                    "pedido_id": imputacion.pedido_id,
-                    "pedido_numero": imputacion.pedido.numero if imputacion.pedido else None,
-                    "cantidad": _as_float(_round_qty(cantidad)),
-                    "origen": row.get("origen") or source,
-                })
+    pedido_totals, pedido_detail = _build_pedido_process_totals(acopio, warnings)
 
     precios = acopio.precios_referencia
     total_positivo = Decimal("0")
@@ -219,3 +235,4 @@ def build_resumen_compensacion(
         "rows": rows,
         "warnings": warnings,
     }
+
