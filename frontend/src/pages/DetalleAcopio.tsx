@@ -10,6 +10,12 @@ import {
     type PrecioReferenciaProcesoUnidad
 } from '../constants/preciosReferencia';
 
+// Grupos de exclusión mutua: solo puede estar marcado uno por grupo a la vez
+const PROCESO_EXCLUSION_GROUPS: PrecioReferenciaProcesoKey[][] = [
+    ['camara_estructural', 'camara_normal', 'camara_offset'],
+    ['opacificado_perimetral', 'opacificado_total'],
+];
+
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
     const [acopio, setAcopio] = useState<any>(null);
@@ -195,16 +201,45 @@ function DetalleAcopio() {
     ) => {
         const savingKey = `${itemId}:${processKey}`;
         const item = acopio.items.find((current: any) => current.id === itemId);
-        const previousValue = Boolean(item?.procesos?.[processKey]);
+
+        // Determina qué keys cambiarán: la seleccionada + las que hay que desmarcar por exclusión mutua
+        const exclusionGroup = PROCESO_EXCLUSION_GROUPS.find(group => group.includes(processKey));
+        const keysToUncheck: PrecioReferenciaProcesoKey[] = checked && exclusionGroup
+            ? exclusionGroup.filter(k => k !== processKey && Boolean(item?.procesos?.[k]))
+            : [];
+
+        // Snapshot del estado anterior para poder revertir si falla la llamada
+        const previousValues: Partial<Record<PrecioReferenciaProcesoKey, boolean>> = {
+            [processKey]: Boolean(item?.procesos?.[processKey]),
+            ...Object.fromEntries(keysToUncheck.map(k => [k, Boolean(item?.procesos?.[k])])),
+        };
+
+        // Construye el payload con todos los cambios del grupo
+        const payload: Partial<Record<PrecioReferenciaProcesoKey, boolean>> = {
+            [processKey]: checked,
+            ...Object.fromEntries(keysToUncheck.map(k => [k, false])),
+        };
 
         setItemProcessError(null);
         setItemProcessSaving(prev => ({ ...prev, [savingKey]: true }));
-        updateItemProcesoLocal(itemId, processKey, checked);
+
+        // Actualización optimista local
+        setAcopio((prev: any) => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                items: prev.items.map((current: any) =>
+                    current.id === itemId
+                        ? { ...current, procesos: { ...(current.procesos || {}), ...payload } }
+                        : current
+                ),
+            };
+        });
 
         try {
             const response = await apiClient.patch(
                 `/acopios/${id}/items/${itemId}/procesos`,
-                { [processKey]: checked }
+                payload
             );
 
             setAcopio((prev: any) => {
@@ -225,7 +260,18 @@ function DetalleAcopio() {
             });
             loadResumenCompensacion(id!);
         } catch (err: any) {
-            updateItemProcesoLocal(itemId, processKey, previousValue);
+            // Revertir al estado anterior
+            setAcopio((prev: any) => {
+                if (!prev) return prev;
+                return {
+                    ...prev,
+                    items: prev.items.map((current: any) =>
+                        current.id === itemId
+                            ? { ...current, procesos: { ...(current.procesos || {}), ...previousValues } }
+                            : current
+                    ),
+                };
+            });
             setItemProcessError(err.response?.data?.detail || 'No se pudo guardar el proceso del item.');
         } finally {
             setItemProcessSaving(prev => {
