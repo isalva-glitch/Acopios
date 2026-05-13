@@ -27,3 +27,4 @@ class Imputacion(BaseModel):
     pedido = relationship("Pedido", back_populates="imputaciones")
     acopio = relationship("Acopio", back_populates="imputaciones")
     acopio_item = relationship("AcopioItem", back_populates="imputaciones")
+    procesos = relationship("ImputacionProceso", back_populates="imputacion", cascade="all, delete-orphan")

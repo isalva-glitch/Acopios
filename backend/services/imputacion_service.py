@@ -1,10 +1,11 @@
 """Imputacion service with business logic."""
-from typing import Optional, Tuple
+from typing import Iterable, Optional, Tuple
 from sqlalchemy.orm import Session
 from decimal import Decimal
 
-from models import Imputacion, Acopio, AcopioItem, Pedido
+from models import Imputacion, ImputacionProceso, Acopio, AcopioItem, Pedido
 from config import settings
+from services.proceso_inference import PROCESS_FIELDS, PROCESS_UNITS
 
 
 class ExcedentePolicy:
@@ -84,7 +85,8 @@ def imputar_consumo(
     cantidad_m2: Decimal,
     cantidad_ml: Decimal,
     cantidad_pesos: Decimal,
-    cantidad_unidades: int
+    cantidad_unidades: int,
+    procesos: Optional[Iterable[dict]] = None
 ) -> Tuple[Imputacion, Optional[str]]:
     """
     Create imputacion and update saldos.
@@ -119,6 +121,30 @@ def imputar_consumo(
     )
     
     db.add(imputacion)
+    db.flush()
+
+    if procesos:
+        for proceso in procesos:
+            proceso_key = proceso.get("proceso")
+            if proceso_key not in PROCESS_FIELDS:
+                continue
+
+            unidad = proceso.get("unidad") or PROCESS_UNITS[proceso_key]
+            if unidad != PROCESS_UNITS[proceso_key]:
+                continue
+
+            cantidad = Decimal(str(proceso.get("cantidad") or 0))
+            if cantidad == 0:
+                continue
+
+            db.add(ImputacionProceso(
+                imputacion_id=imputacion.id,
+                proceso=proceso_key,
+                unidad=unidad,
+                cantidad=cantidad,
+                origen=proceso.get("origen") or "snapshot_spf",
+            ))
+
     db.commit()
     db.refresh(imputacion)
     

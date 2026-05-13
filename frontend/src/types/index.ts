@@ -95,3 +95,47 @@ export interface Imputacion {
     cantidad_unidades?: number;
     es_excedente: boolean;
 }
+
+export interface ResumenCompensacionDetalle {
+    cantidad: number;
+}
+
+export interface ResumenCompensacionItemDetalle extends ResumenCompensacionDetalle {
+    item_id: number;
+    descripcion: string;
+}
+
+export interface ResumenCompensacionPedidoDetalle extends ResumenCompensacionDetalle {
+    imputacion_id: number;
+    pedido_id: number;
+    pedido_numero?: string | null;
+    origen: string;
+}
+
+export interface ResumenCompensacionRow {
+    proceso: string;
+    label: string;
+    unidad: 'm2' | 'ml';
+    cantidad_acopio: number;
+    cantidad_pedidos: number;
+    diferencia: number;
+    precio_referencia: number;
+    importe: number;
+    estado: 'sobrante_acopio' | 'excedente_pedido' | 'compensado';
+    precio_faltante: boolean;
+    items_acopio: ResumenCompensacionItemDetalle[];
+    pedidos: ResumenCompensacionPedidoDetalle[];
+}
+
+export interface ResumenCompensacion {
+    acopio_id: number;
+    numero?: string | null;
+    v_presupuesto_id?: string | null;
+    totals: {
+        positivo: number;
+        negativo: number;
+        saldo: number;
+    };
+    rows: ResumenCompensacionRow[];
+    warnings: string[];
+}

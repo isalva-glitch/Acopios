@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import apiClient from '../api/client';
 import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
+import type { ResumenCompensacion } from '../types';
+import { formatCurrencyAR, formatNumberAR } from '../utils/formatters';
 import {
     PRECIO_REFERENCIA_PROCESOS,
     type PrecioReferenciaProcesoKey,
@@ -15,6 +17,9 @@ function DetalleAcopio() {
     const [loading, setLoading] = useState(true);
     const [loadingAvance, setLoadingAvance] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [resumenCompensacion, setResumenCompensacion] = useState<ResumenCompensacion | null>(null);
+    const [loadingResumenCompensacion, setLoadingResumenCompensacion] = useState(false);
+    const [resumenCompensacionError, setResumenCompensacionError] = useState<string | null>(null);
 
     // Imputation states
     const [showImputer, setShowImputer] = useState(false);
@@ -41,6 +46,7 @@ function DetalleAcopio() {
             const response = await apiClient.get(`/acopios/${id}`);
             const data = response.data;
             setAcopio(data);
+            loadResumenCompensacion(id!);
             
             if (data.v_presupuesto_id) {
                 loadAvanceComercial(id!);
@@ -49,6 +55,20 @@ function DetalleAcopio() {
             setError(err.response?.data?.detail || 'Error al cargar el acopio');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadResumenCompensacion = async (acopioId: string) => {
+        setLoadingResumenCompensacion(true);
+        setResumenCompensacionError(null);
+        try {
+            const response = await apiClient.get<ResumenCompensacion>(`/acopios/${acopioId}/resumen-compensacion`);
+            setResumenCompensacion(response.data);
+        } catch (err: any) {
+            setResumenCompensacion(null);
+            setResumenCompensacionError(err.response?.data?.detail || 'No se pudo cargar el resumen de compensacion.');
+        } finally {
+            setLoadingResumenCompensacion(false);
         }
     };
 
@@ -162,6 +182,11 @@ function DetalleAcopio() {
     ) => Number(item?.totals?.[unidad] || 0);
 
     const formatProcesoCantidad = (value: number) => value.toFixed(2);
+    const formatCantidad = (value: number, unidad: string) => `${formatNumberAR(value, 2)} ${unidad}`;
+    const formatSignedCurrency = (value: number) => {
+        if (value < 0) return `- ${formatCurrencyAR(Math.abs(value))}`;
+        return formatCurrencyAR(value);
+    };
 
     const handleToggleItemProceso = async (
         itemId: number,
@@ -198,6 +223,7 @@ function DetalleAcopio() {
                     ))
                 };
             });
+            loadResumenCompensacion(id!);
         } catch (err: any) {
             updateItemProcesoLocal(itemId, processKey, previousValue);
             setItemProcessError(err.response?.data?.detail || 'No se pudo guardar el proceso del item.');
@@ -299,7 +325,7 @@ function DetalleAcopio() {
                                 <div>
                                     <p><strong>Cant. Paños:</strong> {imputationPreview.spf_pedido.totals.unidades}</p>
                                     <p><strong>Superficie:</strong> {imputationPreview.spf_pedido.totals.m2.toFixed(2)} m²</p>
-                                    <p><strong>Importe:</strong> ${imputationPreview.spf_pedido.totals.pesos.toLocaleString()}</p>
+                                    <p><strong>Importe:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.pesos)}</p>
                                 </div>
                             </div>
                             <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
@@ -351,12 +377,118 @@ function DetalleAcopio() {
                             </tr>
                             <tr>
                                 <td><strong>Pesos</strong></td>
-                                <td>${Number(acopio.totals.pesos).toFixed(2)}</td>
-                                <td>${Number(acopio.saldos.pesos).toFixed(2)}</td>
+                                <td>{formatCurrencyAR(acopio.totals.pesos)}</td>
+                                <td>{formatCurrencyAR(acopio.saldos.pesos)}</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+            </div>
+
+            <div className="form-section resumen-compensacion-section">
+                <div className="resumen-compensacion-header">
+                    <h3>Resumen de compensacion</h3>
+                    {loadingResumenCompensacion && <span>Actualizando...</span>}
+                </div>
+
+                {resumenCompensacionError && (
+                    <div className="item-process-error">
+                        {resumenCompensacionError}
+                    </div>
+                )}
+
+                {resumenCompensacion && (
+                    <>
+                        <div className="resumen-compensacion-totals">
+                            <div>
+                                <span>Total positivo</span>
+                                <strong className="amount-positive">{formatCurrencyAR(resumenCompensacion.totals.positivo)}</strong>
+                            </div>
+                            <div>
+                                <span>Total negativo</span>
+                                <strong className="amount-negative">{formatSignedCurrency(resumenCompensacion.totals.negativo)}</strong>
+                            </div>
+                            <div>
+                                <span>Saldo</span>
+                                <strong className={resumenCompensacion.totals.saldo < 0 ? 'amount-negative' : 'amount-positive'}>
+                                    {formatSignedCurrency(resumenCompensacion.totals.saldo)}
+                                </strong>
+                            </div>
+                        </div>
+
+                        {resumenCompensacion.warnings.length > 0 && (
+                            <div className="warning-box resumen-compensacion-warnings">
+                                {resumenCompensacion.warnings.map((warning, index) => (
+                                    <div className="warning-item warning" key={`${warning}-${index}`}>
+                                        {warning}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="table resumen-compensacion-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Proceso</th>
+                                        <th>Acopio</th>
+                                        <th>Pedidos imputados</th>
+                                        <th>Diferencia</th>
+                                        <th>Precio ref.</th>
+                                        <th>Importe</th>
+                                        <th>Detalle</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {resumenCompensacion.rows.map((row) => (
+                                        <tr className={`compensacion-row ${row.estado}`} key={row.proceso}>
+                                            <td>
+                                                <strong>{row.label}</strong>
+                                                {row.precio_faltante && <span className="missing-price">Sin precio</span>}
+                                            </td>
+                                            <td>{formatCantidad(row.cantidad_acopio, row.unidad)}</td>
+                                            <td>{formatCantidad(row.cantidad_pedidos, row.unidad)}</td>
+                                            <td className={row.diferencia < 0 ? 'amount-negative' : row.diferencia > 0 ? 'amount-positive' : ''}>
+                                                {formatCantidad(row.diferencia, row.unidad)}
+                                            </td>
+                                            <td>{formatCurrencyAR(row.precio_referencia)}</td>
+                                            <td className={row.importe < 0 ? 'amount-negative' : row.importe > 0 ? 'amount-positive' : ''}>
+                                                {formatSignedCurrency(row.importe)}
+                                            </td>
+                                            <td>
+                                                <details>
+                                                    <summary>Ver</summary>
+                                                    <div className="compensacion-detail">
+                                                        <strong>Acopio</strong>
+                                                        {row.items_acopio.length > 0 ? (
+                                                            row.items_acopio.map((item) => (
+                                                                <div key={item.item_id}>
+                                                                    Item {item.item_id}: {formatCantidad(item.cantidad, row.unidad)}
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div>Sin cantidad asignada</div>
+                                                        )}
+                                                        <strong>Pedidos</strong>
+                                                        {row.pedidos.length > 0 ? (
+                                                            row.pedidos.map((pedido) => (
+                                                                <div key={`${pedido.imputacion_id}-${pedido.pedido_numero || 'pedido'}`}>
+                                                                    Pedido {pedido.pedido_numero || pedido.pedido_id}: {formatCantidad(pedido.cantidad, row.unidad)}
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div>Sin cantidad imputada</div>
+                                                        )}
+                                                    </div>
+                                                </details>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
             </div>
             
             {avanceComercial && (
@@ -370,7 +502,7 @@ function DetalleAcopio() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', alignItems: 'center' }}>
                             <div>
                                 <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Total Presupuesto</div>
-                                <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>${avanceComercial.resumen.importe_total.toLocaleString()}</div>
+                                <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{formatCurrencyAR(avanceComercial.resumen.importe_total)}</div>
                             </div>
                             
                             <div>
@@ -433,7 +565,7 @@ function DetalleAcopio() {
                                     <strong>ml:</strong> {Number(item.totals.ml).toFixed(2)} (saldo: {Number(item.saldos.ml).toFixed(2)})
                                 </div>
                                 <div>
-                                    <strong>$:</strong> {Number(item.totals.pesos).toFixed(2)} (saldo: {Number(item.saldos.pesos).toFixed(2)})
+                                    <strong>$:</strong> {formatCurrencyAR(item.totals.pesos)} (saldo: {formatCurrencyAR(item.saldos.pesos)})
                                 </div>
                             </div>
 
@@ -489,8 +621,8 @@ function DetalleAcopio() {
                                                     <tr key={adc.id}>
                                                         <td>{adc.cantidad}</td>
                                                         <td>{adc.descripcion}</td>
-                                                        <td>${Number(adc.precio_unitario).toFixed(2)}</td>
-                                                        <td>${Number(adc.precio_total).toFixed(2)}</td>
+                                                        <td>{formatCurrencyAR(adc.precio_unitario)}</td>
+                                                        <td>{formatCurrencyAR(adc.precio_total)}</td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -567,7 +699,7 @@ function DetalleAcopio() {
                                         <td>{imp.pedido_numero}</td>
                                         <td>{imp.cantidad_m2}</td>
                                         <td>{imp.cantidad_ml}</td>
-                                        <td>${imp.cantidad_pesos}</td>
+                                        <td>{formatCurrencyAR(imp.cantidad_pesos)}</td>
                                         <td>{imp.es_excedente ? '⚠️ Sí' : 'No'}</td>
                                         <td>
                                             <button
@@ -601,7 +733,7 @@ function DetalleAcopio() {
                     onClose={() => setShowPreciosModal(false)}
                     onSave={(data) => {
                         console.log('Precios guardados:', data);
-                        // Opcional: mostrar notificación de éxito
+                        loadResumenCompensacion(id!);
                     }}
                 />
             )}

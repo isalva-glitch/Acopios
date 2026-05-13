@@ -18,6 +18,7 @@ from services.proceso_inference import (
     PROCESS_FIELDS,
     PROCESS_UNITS,
 )
+from services.compensacion_service import build_resumen_compensacion
 
 
 router = APIRouter()
@@ -534,6 +535,19 @@ async def get_acopio_avance_comercial(
         return avance
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{acopio_id}/resumen-compensacion")
+async def get_acopio_resumen_compensacion(
+    acopio_id: int,
+    db: Session = Depends(get_db),
+    spf_db: Session = Depends(get_spf_db)
+):
+    """Get process-level compensation summary for imputed pedidos."""
+    resumen = build_resumen_compensacion(db, acopio_id, spf_db)
+    if not resumen:
+        raise HTTPException(status_code=404, detail="Acopio no encontrado")
+    return resumen
 
 
 @router.get("/{acopio_id}/precios-referencia", response_model=Optional[PrecioReferenciaResponse])

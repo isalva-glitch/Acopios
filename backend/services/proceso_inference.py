@@ -36,22 +36,31 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bvidrio\s+exterior\b",
         r"\bvid\s+ext(?:erior)?\b",
         r"\bv\s+ext(?:erior)?\b",
+        r"\beclipse\b",
+        r"\beclip\b",
     ),
     "vidrio_interior": (
         r"\bvidrio\s+int(?:erior)?\b",
         r"\bvidrio\s+interior\b",
         r"\bvid\s+int(?:erior)?\b",
         r"\bv\s+int(?:erior)?\b",
+        r"\blam\s+3\s+3\b",
+        r"\blaminado\s+3\s+3\b",
     ),
     "camara_estructural": (
         r"\bcamara\s+estructural\b",
+        r"\bcamara\s+extructural\b",
         r"\bsellado\s+estructural\b",
+        r"\bsellado\s+extructural\b",
         r"\bsilicona\s+estructural\b",
+        r"\bsilicona\s+extructural\b",
     ),
     "pulido": (
         r"\bpulido\b",
         r"\bpulir\b",
         r"\bcanto\s+pulido\b",
+        r"\bbp\b",
+        r"\bbpsb\b",
     ),
     "fason_templado_exterior": (
         r"\bfason\s+templado\s+exterior\b",
@@ -60,9 +69,12 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bfason\s+ext(?:erior)?\b",
         r"\btemplad[oa]s?\b",
         r"\btemp\b",
+        r"\btem\b",
     ),
     "pegado_bastidor": (
         r"\bpegad[oa]\s+(?:a\s+)?bastidor\b",
+        r"\bpegad[oa]\s+estructural\b",
+        r"\bpegad[oa]\s+extructural\b",
         r"\bbastidor\b",
     ),
     "opacificado_perimetral": (
@@ -142,6 +154,18 @@ def infer_item_processes_from_texts(texts: Iterable[object]) -> dict:
             and not inferred["camara_offset"]
         )
     )
+
+    has_generic_opacificado = any(
+        re.search(pattern, normalized)
+        for pattern in (
+            r"\bopacificado\b",
+            r"\bopacado\b",
+            r"\bopac\b",
+            r"\bserigraf(?:ia|iado)\b",
+        )
+    )
+    if has_generic_opacificado and not inferred["opacificado_perimetral"]:
+        inferred["opacificado_total"] = True
 
     return inferred
 

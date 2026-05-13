@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import apiClient from '../api/client';
 import type { Acopio } from '../types';
+import { formatCurrencyAR } from '../utils/formatters';
 
 function ListaAcopios() {
     const [acopios, setAcopios] = useState<Acopio[]>([]);
@@ -126,7 +127,7 @@ function ListaAcopios() {
                                     <td>{acopio.saldo_unidades ?? acopio.panos ?? 0}</td>
                                     <td>{Number(acopio.saldo_m2).toFixed(2)}</td>
                                     <td>{Number(acopio.saldo_ml).toFixed(2)}</td>
-                                    <td>${Number(acopio.saldo_pesos).toFixed(2)}</td>
+                                    <td>{formatCurrencyAR(acopio.saldo_pesos)}</td>
                                     <td>
                                         <div style={{ display: 'flex', gap: '0.5rem' }}>
                                             <Link to={`/acopios/${acopio.id}`} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>

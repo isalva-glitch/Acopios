@@ -10,6 +10,7 @@ from models.acopio_item_adicional import AcopioItemAdicional
 from models.pedido import Pedido, EstadoPedido
 from models.remito import Remito
 from models.imputacion import Imputacion
+from models.imputacion_proceso import ImputacionProceso
 from models.comprobante import Comprobante, TipoComprobante
 from models.afectacion_acopio import AfectacionAcopio
 from models.documento import Documento
@@ -31,6 +32,7 @@ __all__ = [
     "EstadoPedido",
     "Remito",
     "Imputacion",
+    "ImputacionProceso",
     "Comprobante",
     "TipoComprobante",
     "AfectacionAcopio",

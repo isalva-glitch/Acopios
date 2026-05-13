@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import apiClient from '../api/client';
+import { formatCurrencyAR } from '../utils/formatters';
 
 export interface SpfPresupuestoDetails {
     v_presupuesto_id: string;
@@ -218,7 +219,7 @@ function AltaAcopio() {
                             <strong>Resumen:</strong><br />
                             {successData.items_count} ítems | {successData.panos_count} paños<br />
                             {Number(successData.totals.m2).toFixed(2)} m² | {Number(successData.totals.ml).toFixed(2)} ml<br />
-                            $ {Number(successData.totals.importe).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            {formatCurrencyAR(successData.totals.importe)}
                         </div>
                     </div>
                     <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
@@ -300,7 +301,7 @@ function AltaAcopio() {
                                 <strong>Totales:</strong><br />
                                 m²: {Number(spfPreview.total_m2).toFixed(2)}<br />
                                 ml: {Number(spfPreview.total_ml).toFixed(2)}<br />
-                                $: {Number(spfPreview.total_pesos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                $: {formatCurrencyAR(spfPreview.total_pesos)}
                             </div>
                         </div>
                     </div>
@@ -331,7 +332,7 @@ function AltaAcopio() {
                                 <strong>Totales PDF:</strong><br />
                                 Unidades: {pdfPreview.presupuesto.total_unidades}<br />
                                 m²: {pdfPreview.presupuesto.total_m2.toFixed(2)} | ml: {pdfPreview.presupuesto.total_ml.toFixed(2)}<br />
-                                $: {pdfPreview.presupuesto.total_importe.toLocaleString('es-AR', { minimumFractionDigits: 2 })}<br />
+                                $: {formatCurrencyAR(pdfPreview.presupuesto.total_importe)}<br />
                                 Peso: {pdfPreview.presupuesto.peso_estimado_kg.toFixed(2)} Kg
                             </div>
                         </div>
@@ -352,7 +353,7 @@ function AltaAcopio() {
                                     <div key={item.numero_item} style={{ marginBottom: '1rem', borderBottom: '1px solid #f9f9f9', paddingBottom: '0.5rem' }}>
                                         <strong>Ítem {item.numero_item}:</strong> {item.descripcion} ({item.cantidad} paños{item.adicionales?.length ? `, ${item.adicionales.length} adicionales` : ''})
                                         <div style={{ fontSize: '0.85rem', color: '#666', marginLeft: '1rem' }}>
-                                            m²: {item.total_m2.toFixed(2)} | ml: {item.total_ml.toFixed(2)} | $: {item.total_pesos.toLocaleString('es-AR')}
+                                            m²: {item.total_m2.toFixed(2)} | ml: {item.total_ml.toFixed(2)} | $: {formatCurrencyAR(item.total_pesos)}
                                         </div>
                                     </div>
                                 ))}

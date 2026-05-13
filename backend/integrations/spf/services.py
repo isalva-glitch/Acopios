@@ -1,3 +1,4 @@
+from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, union_all, cast, String
 from .models import (
@@ -6,6 +7,11 @@ from .models import (
     SpfTangoHeader, SpfTangoHeaderHistorico,
     SpfTangoBody, SpfTangoBodyHistorico,
     SpfLineaTangoFacturada, SpfLineaTangoRemitida
+)
+from services.proceso_inference import (
+    PROCESS_FIELDS,
+    PROCESS_UNITS,
+    infer_item_processes_from_texts,
 )
 
 # Status mapping for SpfPedido.estado_id
@@ -17,6 +23,69 @@ ESTADOS_PEDIDO = {
     5: "Pausado",
     6: "Preactivo"
 }
+
+
+def _to_decimal(value) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _get_complement_names(db: Session, items):
+    complement_ids = {
+        comp.v_complemento_id
+        for item in items
+        for comp in item.complementos
+        if comp.v_complemento_id
+    }
+    if not complement_ids:
+        return {}
+
+    complements = db.query(SpfVComplemento).filter(
+        SpfVComplemento.id.in_(list(complement_ids))
+    ).all()
+    return {comp.id: comp.nombre for comp in complements}
+
+
+def summarize_spf_items_processes(db: Session, items):
+    """
+    Summarize SPF items by reference-price process.
+
+    A process consumes the item's full m2 or ml according to PROCESS_UNITS,
+    matching the summary spreadsheet model.
+    """
+    totals = {field: Decimal("0") for field in PROCESS_FIELDS}
+    complement_names = _get_complement_names(db, items)
+
+    for item in items:
+        item_m2 = sum(_to_decimal(med.superficie) for med in item.medidas)
+        item_ml = sum(_to_decimal(med.perimtero) for med in item.medidas)
+        texts = [
+            item.descripcion,
+            *(med.denominacion for med in item.medidas),
+            *(
+                complement_names.get(comp.v_complemento_id, f"Complemento {comp.v_complemento_id}")
+                for comp in item.complementos
+            ),
+        ]
+        inferred = infer_item_processes_from_texts(texts)
+
+        for field in PROCESS_FIELDS:
+            if not inferred[field]:
+                continue
+            totals[field] += item_m2 if PROCESS_UNITS[field] == "m2" else item_ml
+
+    return [
+        {
+            "proceso": field,
+            "unidad": PROCESS_UNITS[field],
+            "cantidad": float(totals[field]),
+        }
+        for field in PROCESS_FIELDS
+        if totals[field] != 0
+    ]
 
 
 def search_presupuestos(db: Session, query: str):
@@ -385,6 +454,7 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         "nrooc": pedido.nrooc,
         "v_presupuesto_id": v_presupuesto_id,
         "empresa": empresa,
+        "procesos": summarize_spf_items_processes(db, items),
         "totals": {
             "m2": total_m2,
             "ml": total_ml,
@@ -392,6 +462,4 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
             "unidades": total_qty
         }
     }
-
-
 

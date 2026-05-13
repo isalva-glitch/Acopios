@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import apiClient from '../api/client';
+import { formatCurrencyAR } from '../utils/formatters';
 
 type ReportType = 'acopios-activos' | 'excedentes' | 'vencimientos-precio';
 
@@ -118,7 +119,7 @@ function Reportes() {
                                             <td>{item.estado}</td>
                                             <td>{Number(item.saldo_m2).toFixed(2)}</td>
                                             <td>{Number(item.saldo_ml).toFixed(2)}</td>
-                                            <td>${Number(item.saldo_pesos).toFixed(2)}</td>
+                                            <td>{formatCurrencyAR(item.saldo_pesos)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -148,7 +149,7 @@ function Reportes() {
                                             <td>{item.obra}</td>
                                             <td>{Number(item.cantidad_m2).toFixed(2)}</td>
                                             <td>{Number(item.cantidad_ml).toFixed(2)}</td>
-                                            <td>${Number(item.cantidad_pesos).toFixed(2)}</td>
+                                            <td>{formatCurrencyAR(item.cantidad_pesos)}</td>
                                             <td>{new Date(item.fecha).toLocaleDateString()}</td>
                                         </tr>
                                     ))}
@@ -178,7 +179,7 @@ function Reportes() {
                                             <td>{item.cliente}</td>
                                             <td>{new Date(item.fecha_vencimiento).toLocaleDateString()}</td>
                                             <td>{item.dias_restantes}</td>
-                                            <td>${Number(item.saldo_pesos).toFixed(2)}</td>
+                                            <td>{formatCurrencyAR(item.saldo_pesos)}</td>
                                         </tr>
                                     ))}
                                 </tbody>

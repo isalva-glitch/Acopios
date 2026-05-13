@@ -275,7 +275,8 @@ async def create_pedido_from_spf(
             cantidad_m2=Decimal(str(spf_pedido["totals"]["m2"])),
             cantidad_ml=Decimal(str(spf_pedido["totals"]["ml"])),
             cantidad_pesos=Decimal(str(spf_pedido["totals"]["pesos"])),
-            cantidad_unidades=spf_pedido["totals"]["unidades"]
+            cantidad_unidades=spf_pedido["totals"]["unidades"],
+            procesos=spf_pedido.get("procesos", [])
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -24,6 +24,7 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Gestión de Precios de Referencia (Base y Actual) para control de rentabilidad
 - ✅ Panel de Procesos por Item (Templado, Laminado, Pulido, etc.) con guardado automático
 - ✅ Autodetección inicial de procesos por item al crear el acopio, con edición manual posterior
+- ✅ Módulo de Compensación de Procesos: Cálculo automático de diferencias entre cantidades acopiadas e imputadas por tipo de proceso, con valorización económica basada en precios de referencia.
 - ✅ Interfaz de usuario optimizada (Alto contraste y scroll horizontal en tablas)
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
@@ -87,6 +88,7 @@ Acopios/
 - `POST /acopios/confirm` - Confirmar y crear acopio
 - `GET /acopios` - Listar acopios
 - `GET /acopios/{id}` - Detalle de acopio
+- `GET /acopios/{id}/compensacion` - Resumen de compensación de procesos
 
 ### Pedidos
 - `POST /pedidos/upload-pdf` - Subir PDF de pedido
@@ -148,6 +150,7 @@ npm run dev
 6. Cambios de material/tipología se registran explícitamente
 7. Los procesos asociados a precios de referencia se interpretan solo durante el alta del acopio
 8. Una vez creado el acopio, abrirlo o modificarlo no vuelve a reinterpretar procesos; los checks quedan bajo control manual
+9. **Compensación**: Se calculan las diferencias entre el total acopiado y el total imputado en pedidos para cada proceso. Si hay diferencias, se valorizan al precio de referencia actual para determinar el impacto económico de los cambios en los pedidos.
 
 ## Procesos por Item
 

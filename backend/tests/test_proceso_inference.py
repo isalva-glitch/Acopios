@@ -73,6 +73,21 @@ def test_generic_camera_means_normal_camera():
     assert result["camara_offset"] is False
 
 
+def test_excel_summary_process_aliases():
+    result = infer_item_processes_from_texts([
+        "ECLIP.ADV.GREY BP TEM + CAMARA 12 MM + LAM 3+3",
+        "OPACIFICADO SILICONA NEGRO + PEGADO EXTRUCTURAL",
+    ])
+
+    assert result["vidrio_exterior"] is True
+    assert result["vidrio_interior"] is True
+    assert result["pulido"] is True
+    assert result["fason_templado_exterior"] is True
+    assert result["camara_normal"] is True
+    assert result["opacificado_total"] is True
+    assert result["pegado_bastidor"] is True
+
+
 def test_acopio_creation_marks_detected_processes_and_keeps_manual_uncheck(
     client: TestClient,
 ):

@@ -159,12 +159,16 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
         db.flush()
         
         # Create extraccion_ia
+        extraction_date = extraction_package["meta"]["extraction_date"]
+        if isinstance(extraction_date, str):
+            extraction_date = datetime.fromisoformat(extraction_date)
+
         extraccion = ExtraccionIA(
             documento_id=documento.id,
             contenido_extraido=extraction_package,
             warnings=extraction_package.get("warnings", []),
             validado=len([w for w in extraction_package.get("warnings", []) if w["level"] == "ERROR"]) == 0,
-            fecha_extraccion=extraction_package["meta"]["extraction_date"]
+            fecha_extraccion=extraction_date
         )
         db.add(extraccion)
     
