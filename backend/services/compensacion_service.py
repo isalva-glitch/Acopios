@@ -101,6 +101,28 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
     for imputacion in acopio.imputaciones:
         pedido_id = imputacion.pedido_id
         pedido_numero = imputacion.pedido.numero if imputacion.pedido else str(pedido_id)
+
+        if imputacion.procesos:
+            for proceso in imputacion.procesos:
+                field = proceso.proceso
+                if field not in PROCESS_FIELDS:
+                    warnings.append(f"Proceso desconocido en imputacion {imputacion.id}: {field}")
+                    continue
+
+                cantidad = _round_qty(_to_decimal(proceso.cantidad))
+                if cantidad == 0:
+                    continue
+
+                totals[field] += cantidad
+                detail[field].append({
+                    "imputacion_id": imputacion.id,
+                    "pedido_id": pedido_id,
+                    "pedido_numero": pedido_numero,
+                    "cantidad": _as_float(cantidad),
+                    "origen": proceso.origen or "composicion_pedido",
+                })
+            continue
+
         imp_m2 = _to_decimal(imputacion.cantidad_m2)
         imp_ml = _to_decimal(imputacion.cantidad_ml)
 
@@ -235,4 +257,3 @@ def build_resumen_compensacion(
         "rows": rows,
         "warnings": warnings,
     }
-

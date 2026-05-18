@@ -52,8 +52,8 @@ def test_get_presupuesto_details_aggregates():
     assert result is not None
     assert result["v_presupuesto_id"] == "P123"
     assert result["cliente_id"] == 99
-    assert result["total_m2"] == 3.5  # (2*1.5) + (1*0.5)
-    assert result["total_ml"] == 5.0  # (2*2.0) + (1*1.0)
+    assert result["total_m2"] == 2.0  # 1.5 + 0.5 (already subtotals)
+    assert result["total_ml"] == 3.0  # 2.0 + 1.0 (already subtotals)
     assert result["items_count"] == 2
     assert "items" in result
     assert result["items"][0]["cantidad"] == 3  # medida1 (2) + medida2 (1)

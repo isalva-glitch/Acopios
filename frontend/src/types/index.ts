@@ -88,12 +88,16 @@ export interface Imputacion {
     id: number;
     pedido_id: number;
     acopio_id: number;
-    acopio_item_id?: number;
+    acopio_item_id?: number | null;
     cantidad_m2: number;
     cantidad_ml: number;
     cantidad_pesos: number;
     cantidad_unidades?: number;
     es_excedente: boolean;
+    pedido_item_descripcion?: string | null;
+    composicion_match_estado?: string | null;
+    composicion_match_score?: number | null;
+    composicion_advertencia?: string | null;
 }
 
 export interface ResumenCompensacionDetalle {

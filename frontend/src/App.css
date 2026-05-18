@@ -555,6 +555,14 @@
     color: #2c3e50;
 }
 
+.composition-warning {
+    display: inline-block;
+    max-width: 360px;
+    color: #856404;
+    font-size: 0.85rem;
+    line-height: 1.3;
+}
+
 .resumen-compensacion-warnings {
     margin-top: 0;
 }

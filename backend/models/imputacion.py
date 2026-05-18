@@ -1,5 +1,6 @@
 """Imputacion model."""
 from sqlalchemy import Column, Integer, ForeignKey, Numeric, Boolean
+from sqlalchemy import String
 from sqlalchemy.orm import relationship
 from models.base import BaseModel
 
@@ -17,6 +18,13 @@ class Imputacion(BaseModel):
     
     # Control de excedente
     es_excedente = Column(Boolean, default=False, nullable=False)
+
+    # Control de composicion
+    pedido_item_descripcion = Column(String(500), nullable=True)
+    composicion_normalizada = Column(String(1200), nullable=True)
+    composicion_match_estado = Column(String(50), nullable=True)
+    composicion_match_score = Column(Numeric(6, 4), nullable=True)
+    composicion_advertencia = Column(String(1200), nullable=True)
     
     # Foreign keys
     pedido_id = Column(Integer, ForeignKey("pedidos.id"), nullable=False)

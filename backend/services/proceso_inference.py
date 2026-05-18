@@ -50,6 +50,8 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
     "camara_estructural": (
         r"\bcamara\s+estructural\b",
         r"\bcamara\s+extructural\b",
+        r"\bcamara\s+\d+\s+(?:mm\s+)?estructural\b",
+        r"\bcamara\s+\d+\s+(?:mm\s+)?extructural\b",
         r"\bsellado\s+estructural\b",
         r"\bsellado\s+extructural\b",
         r"\bsilicona\s+estructural\b",
@@ -57,8 +59,10 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
     ),
     "pulido": (
         r"\bpulido\b",
+        r"\bpulidos\b",
         r"\bpulir\b",
         r"\bcanto\s+pulido\b",
+        r"\bbordes\s+pulidos\b",
         r"\bbp\b",
         r"\bbpsb\b",
     ),

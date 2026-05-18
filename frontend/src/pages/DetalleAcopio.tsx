@@ -115,7 +115,9 @@ function DetalleAcopio() {
         setImputationSuccess(false);
 
         try {
-            const response = await apiClient.get(`/integrations/spf/pedidos/${nroPedidoBusqueda}/imputation-preview`);
+            const response = await apiClient.get(`/integrations/spf/pedidos/${nroPedidoBusqueda}/imputation-preview`, {
+                params: { acopio_id: id }
+            });
             const data = response.data;
             
             const acopioBudgetId = acopio.v_presupuesto_id || acopio.numero;
@@ -349,6 +351,16 @@ function DetalleAcopio() {
                                     <p><strong>Importe:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.pesos)}</p>
                                 </div>
                             </div>
+                            {imputationPreview.composicion_warnings?.length > 0 && (
+                                <div className="warning-box" style={{ marginTop: '1rem' }}>
+                                    <h4>Advertencias de composicion</h4>
+                                    {imputationPreview.composicion_warnings.map((warning: string, index: number) => (
+                                        <div className="warning-item warning" key={`${warning}-${index}`}>
+                                            {warning}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                             <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
                                 <button className="btn btn-success" onClick={handleConfirmImputation} disabled={imputationLoading} style={{ flex: 1 }}>
                                     {imputationLoading ? 'Confirmando...' : 'Confirmar e Imputar'}
@@ -654,7 +666,7 @@ function DetalleAcopio() {
                         </div>
 
                         <div className="item-processes-panel">
-                            <div className="item-processes-title">Procesos</div>
+                            <div className="item-processes-title">Composicion</div>
                             <div className="item-processes-list">
                                 {PRECIO_REFERENCIA_PROCESOS.map((proceso) => {
                                     const savingKey = `${item.id}:${proceso.key}`;
@@ -710,6 +722,7 @@ function DetalleAcopio() {
                                     <th>m²</th>
                                     <th>ml</th>
                                     <th>$</th>
+                                    <th>Composicion</th>
                                     <th>Excedente</th>
                                     <th>Acciones</th>
                                 </tr>
@@ -721,6 +734,15 @@ function DetalleAcopio() {
                                         <td>{imp.cantidad_m2}</td>
                                         <td>{imp.cantidad_ml}</td>
                                         <td>{formatCurrencyAR(imp.cantidad_pesos)}</td>
+                                        <td>
+                                            {imp.composicion_advertencia ? (
+                                                <span className="composition-warning">
+                                                    {imp.composicion_advertencia}
+                                                </span>
+                                            ) : (
+                                                imp.composicion_match_estado || 'S/D'
+                                            )}
+                                        </td>
                                         <td>{imp.es_excedente ? '⚠️ Sí' : 'No'}</td>
                                         <td>
                                             <button

@@ -13,6 +13,7 @@ from services.proceso_inference import (
     PROCESS_UNITS,
     infer_item_processes_from_texts,
 )
+from services.composicion_normalization import normalizar_composicion
 
 # Status mapping for SpfPedido.estado_id
 ESTADOS_PEDIDO = {
@@ -86,6 +87,38 @@ def summarize_spf_items_processes(db: Session, items):
         for field in PROCESS_FIELDS
         if totals[field] != 0
     ]
+
+
+def summarize_spf_item_processes(db: Session, item, complement_names=None):
+    """Summarize one SPF item by process and return its normalized composition."""
+    complement_names = complement_names or _get_complement_names(db, [item])
+    item_m2 = sum(_to_decimal(med.superficie) for med in item.medidas)
+    item_ml = sum(_to_decimal(med.perimtero) for med in item.medidas)
+    texts = [
+        item.descripcion,
+        *(med.denominacion for med in item.medidas),
+        *(
+            complement_names.get(comp.v_complemento_id, f"Complemento {comp.v_complemento_id}")
+            for comp in item.complementos
+        ),
+    ]
+    composicion = normalizar_composicion(texts)
+    procesos = []
+    for field in PROCESS_FIELDS:
+        if not composicion.procesos[field]:
+            continue
+
+        cantidad = item_m2 if PROCESS_UNITS[field] == "m2" else item_ml
+        if cantidad == 0:
+            continue
+
+        procesos.append({
+            "proceso": field,
+            "unidad": PROCESS_UNITS[field],
+            "cantidad": float(cantidad),
+        })
+
+    return procesos, composicion
 
 
 def search_presupuestos(db: Session, query: str):
@@ -418,22 +451,52 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
     total_ml = 0.0
     total_pesos = 0.0
     total_qty = 0
+    items_out = []
+    complement_names = _get_complement_names(db, items)
     
     for it in items:
         if not v_presupuesto_id and it.v_presupuesto_id:
             v_presupuesto_id = str(it.v_presupuesto_id).zfill(9)
-            
+
+        item_m2 = 0.0
+        item_ml = 0.0
+        item_pesos = 0.0
+        item_qty = 0
+
         for med in it.medidas:
-            total_m2 += float(med.superficie or 0) # Already subtotal from requirement
-            total_ml += float(med.perimtero or 0)
-            total_pesos += float(med.total_item or 0)
-            total_qty += (med.cantidad or 0)
+            item_m2 += float(med.superficie or 0) # Already subtotal from requirement
+            item_ml += float(med.perimtero or 0)
+            item_pesos += float(med.total_item or 0)
+            item_qty += (med.cantidad or 0)
             
         for comp in it.complementos:
             qty = comp.cantidad or 1
             unit_price = float(comp.total_complemento or 0)
-            total_pesos += unit_price * qty
+            item_pesos += unit_price * qty
             # The units of adicionales should NOT count towards physical units consumed
+
+        item_procesos, composicion = summarize_spf_item_processes(db, it, complement_names)
+        items_out.append({
+            "id": it.id,
+            "v_item_id": it.v_item_id,
+            "descripcion": it.descripcion or f"Item {it.id}",
+            "total_m2": item_m2,
+            "total_ml": item_ml,
+            "total_pesos": item_pesos,
+            "total_unidades": item_qty,
+            "procesos": item_procesos,
+            "composicion": {
+                "normalizada": composicion.texto_normalizado,
+                "firma": composicion.firma,
+                "componentes": list(composicion.componentes),
+                "procesos": composicion.procesos,
+            },
+        })
+
+        total_m2 += item_m2
+        total_ml += item_ml
+        total_pesos += item_pesos
+        total_qty += item_qty
 
     # Resolve issuing company
     talonarios = db.query(SpfComprobanteTemp.talonario).filter(
@@ -455,6 +518,7 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         "v_presupuesto_id": v_presupuesto_id,
         "empresa": empresa,
         "procesos": summarize_spf_items_processes(db, items),
+        "items": items_out,
         "totals": {
             "m2": total_m2,
             "ml": total_ml,
@@ -462,4 +526,3 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
             "unidades": total_qty
         }
     }
-

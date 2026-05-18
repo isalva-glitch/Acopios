@@ -86,7 +86,12 @@ def imputar_consumo(
     cantidad_ml: Decimal,
     cantidad_pesos: Decimal,
     cantidad_unidades: int,
-    procesos: Optional[Iterable[dict]] = None
+    procesos: Optional[Iterable[dict]] = None,
+    pedido_item_descripcion: Optional[str] = None,
+    composicion_normalizada: Optional[str] = None,
+    composicion_match_estado: Optional[str] = None,
+    composicion_match_score: Optional[Decimal] = None,
+    composicion_advertencia: Optional[str] = None,
 ) -> Tuple[Imputacion, Optional[str]]:
     """
     Create imputacion and update saldos.
@@ -117,7 +122,12 @@ def imputar_consumo(
         cantidad_ml=cantidad_ml,
         cantidad_pesos=cantidad_pesos,
         cantidad_unidades=cantidad_unidades,
-        es_excedente=is_excedente
+        es_excedente=is_excedente,
+        pedido_item_descripcion=pedido_item_descripcion,
+        composicion_normalizada=composicion_normalizada,
+        composicion_match_estado=composicion_match_estado,
+        composicion_match_score=composicion_match_score,
+        composicion_advertencia=composicion_advertencia,
     )
     
     db.add(imputacion)
@@ -156,6 +166,184 @@ def imputar_consumo(
     return_warning = warning if (is_excedente and policy == ExcedentePolicy.WARN) else None
     
     return imputacion, return_warning
+
+
+def imputar_consumos(
+    db: Session,
+    consumos: Iterable[dict],
+) -> Tuple[list[Imputacion], list[str]]:
+    """
+    Create several imputation rows atomically.
+
+    Used when a pedido SPF contains several item compositions that must be
+    assigned to acopio items independently.
+    """
+    consumos = list(consumos)
+    if not consumos:
+        return [], []
+
+    warnings: list[str] = []
+    excedente_flags: list[bool] = []
+
+    def to_decimal(value) -> Decimal:
+        return value if isinstance(value, Decimal) else Decimal(str(value or 0))
+
+    def add_warning(message: Optional[str]) -> None:
+        if message and message not in warnings:
+            warnings.append(message)
+
+    def add_to_bucket(bucket: dict, consumo: dict, index: int) -> None:
+        bucket["indices"].append(index)
+        bucket["m2"] += to_decimal(consumo["cantidad_m2"])
+        bucket["ml"] += to_decimal(consumo["cantidad_ml"])
+        bucket["pesos"] += to_decimal(consumo["cantidad_pesos"])
+        bucket["unidades"] += int(consumo["cantidad_unidades"] or 0)
+
+    def mark_excedente(indices: list[int], message: str) -> None:
+        for index in indices:
+            excedente_flags[index] = True
+        add_warning(message)
+
+    for consumo in consumos:
+        is_excedente, warning = check_excedente(
+            db,
+            consumo["acopio_id"],
+            consumo.get("acopio_item_id"),
+            consumo["cantidad_m2"],
+            consumo["cantidad_ml"],
+            consumo["cantidad_pesos"],
+            consumo["cantidad_unidades"],
+        )
+        excedente_flags.append(is_excedente)
+        add_warning(warning)
+
+    totals_by_acopio: dict[int, dict] = {}
+    totals_by_item: dict[int, dict] = {}
+    for index, consumo in enumerate(consumos):
+        acopio_bucket = totals_by_acopio.setdefault(
+            consumo["acopio_id"],
+            {"indices": [], "m2": Decimal("0"), "ml": Decimal("0"), "pesos": Decimal("0"), "unidades": 0},
+        )
+        add_to_bucket(acopio_bucket, consumo, index)
+
+        acopio_item_id = consumo.get("acopio_item_id")
+        if acopio_item_id:
+            item_bucket = totals_by_item.setdefault(
+                acopio_item_id,
+                {"indices": [], "m2": Decimal("0"), "ml": Decimal("0"), "pesos": Decimal("0"), "unidades": 0},
+            )
+            add_to_bucket(item_bucket, consumo, index)
+
+    for acopio_id, bucket in totals_by_acopio.items():
+        acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+        if not acopio:
+            continue
+
+        if bucket["m2"] > to_decimal(acopio.saldo_m2):
+            mark_excedente(
+                bucket["indices"],
+                f"Acopio {acopio_id}: consumo acumulado m2 {bucket['m2']} excede saldo {acopio.saldo_m2}",
+            )
+        if bucket["ml"] > to_decimal(acopio.saldo_ml):
+            mark_excedente(
+                bucket["indices"],
+                f"Acopio {acopio_id}: consumo acumulado ml {bucket['ml']} excede saldo {acopio.saldo_ml}",
+            )
+        if bucket["pesos"] > to_decimal(acopio.saldo_pesos):
+            mark_excedente(
+                bucket["indices"],
+                f"Acopio {acopio_id}: consumo acumulado pesos {bucket['pesos']} excede saldo {acopio.saldo_pesos}",
+            )
+        if bucket["unidades"] > int(acopio.saldo_unidades or 0):
+            mark_excedente(
+                bucket["indices"],
+                f"Acopio {acopio_id}: consumo acumulado unidades {bucket['unidades']} excede saldo {acopio.saldo_unidades}",
+            )
+
+    for item_id, bucket in totals_by_item.items():
+        item = db.query(AcopioItem).filter(AcopioItem.id == item_id).first()
+        if not item:
+            continue
+
+        item_label = item.descripcion or item_id
+        if bucket["m2"] > to_decimal(item.saldo_m2):
+            mark_excedente(
+                bucket["indices"],
+                f"Item {item_label}: consumo acumulado m2 {bucket['m2']} excede saldo {item.saldo_m2}",
+            )
+        if bucket["ml"] > to_decimal(item.saldo_ml):
+            mark_excedente(
+                bucket["indices"],
+                f"Item {item_label}: consumo acumulado ml {bucket['ml']} excede saldo {item.saldo_ml}",
+            )
+        if bucket["pesos"] > to_decimal(item.saldo_pesos):
+            mark_excedente(
+                bucket["indices"],
+                f"Item {item_label}: consumo acumulado pesos {bucket['pesos']} excede saldo {item.saldo_pesos}",
+            )
+        if bucket["unidades"] > int(item.saldo_cantidad or 0):
+            mark_excedente(
+                bucket["indices"],
+                f"Item {item_label}: consumo acumulado unidades {bucket['unidades']} excede saldo {item.saldo_cantidad}",
+            )
+
+    policy = settings.excedente_policy
+    if any(excedente_flags) and policy == ExcedentePolicy.BLOCK:
+        raise ValueError(f"Imputacion bloqueada por excedente: {'; '.join(warnings)}")
+
+    imputaciones: list[Imputacion] = []
+    for consumo, is_excedente in zip(consumos, excedente_flags):
+        imputacion = Imputacion(
+            pedido_id=consumo["pedido_id"],
+            acopio_id=consumo["acopio_id"],
+            acopio_item_id=consumo.get("acopio_item_id"),
+            cantidad_m2=consumo["cantidad_m2"],
+            cantidad_ml=consumo["cantidad_ml"],
+            cantidad_pesos=consumo["cantidad_pesos"],
+            cantidad_unidades=consumo["cantidad_unidades"],
+            es_excedente=is_excedente,
+            pedido_item_descripcion=consumo.get("pedido_item_descripcion"),
+            composicion_normalizada=consumo.get("composicion_normalizada"),
+            composicion_match_estado=consumo.get("composicion_match_estado"),
+            composicion_match_score=consumo.get("composicion_match_score"),
+            composicion_advertencia=consumo.get("composicion_advertencia"),
+        )
+        db.add(imputacion)
+        db.flush()
+
+        for proceso in consumo.get("procesos") or []:
+            proceso_key = proceso.get("proceso")
+            if proceso_key not in PROCESS_FIELDS:
+                continue
+
+            unidad = proceso.get("unidad") or PROCESS_UNITS[proceso_key]
+            if unidad != PROCESS_UNITS[proceso_key]:
+                continue
+
+            cantidad = Decimal(str(proceso.get("cantidad") or 0))
+            if cantidad == 0:
+                continue
+
+            db.add(ImputacionProceso(
+                imputacion_id=imputacion.id,
+                proceso=proceso_key,
+                unidad=unidad,
+                cantidad=cantidad,
+                origen=proceso.get("origen") or "composicion_pedido",
+            ))
+
+        imputaciones.append(imputacion)
+
+    db.commit()
+    for imputacion in imputaciones:
+        db.refresh(imputacion)
+
+    from services.acopio_service import update_saldos
+    for acopio_id in {imputacion.acopio_id for imputacion in imputaciones}:
+        update_saldos(db, acopio_id)
+
+    return_warnings = warnings if (any(excedente_flags) and policy == ExcedentePolicy.WARN) else []
+    return imputaciones, return_warnings
 
 
 def anular_imputacion(db: Session, imputacion_id: int) -> dict:

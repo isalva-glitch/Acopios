@@ -7,6 +7,7 @@ from integrations.spf import services
 from integrations.spf.database import get_spf_db
 from database import get_db
 from models import Acopio
+from services.composicion_normalization import preview_match_items
 
 
 router = APIRouter()
@@ -66,6 +67,7 @@ async def get_avance_comercial(
 @router.get("/pedidos/{nro_pedido}/imputation-preview")
 async def get_pedido_imputation_preview(
     nro_pedido: str,
+    acopio_id: int | None = None,
     db: Session = Depends(get_db),
     spf_db: Session = Depends(get_spf_db)
 ):
@@ -80,10 +82,21 @@ async def get_pedido_imputation_preview(
         raise HTTPException(status_code=400, detail="El pedido no tiene un presupuesto (v_presupuesto_id) asociado")
         
     # Find local acopio
-    acopio = db.query(Acopio).filter(Acopio.v_presupuesto_id == spf_pedido["v_presupuesto_id"]).first()
+    if acopio_id:
+        acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    else:
+        acopio = db.query(Acopio).filter(Acopio.v_presupuesto_id == spf_pedido["v_presupuesto_id"]).first()
+
+    composicion_matches = preview_match_items(acopio.items, spf_pedido.get("items", [])) if acopio else []
     
     return {
         "spf_pedido": spf_pedido,
+        "composicion_matches": composicion_matches,
+        "composicion_warnings": [
+            match["advertencia"]
+            for match in composicion_matches
+            if match.get("advertencia")
+        ],
         "acopio_local": {
             "id": acopio.id,
             "numero": acopio.numero,

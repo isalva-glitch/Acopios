@@ -447,7 +447,12 @@ async def get_acopio_detail(
                 "cantidad_ml": float(imp.cantidad_ml or 0),
                 "cantidad_pesos": float(imp.cantidad_pesos or 0),
                 "cantidad_unidades": imp.cantidad_unidades or 0,
-                "es_excedente": imp.es_excedente or False
+                "es_excedente": imp.es_excedente or False,
+                "acopio_item_id": imp.acopio_item_id,
+                "pedido_item_descripcion": imp.pedido_item_descripcion,
+                "composicion_match_estado": imp.composicion_match_estado,
+                "composicion_match_score": float(imp.composicion_match_score or 0),
+                "composicion_advertencia": imp.composicion_advertencia,
             }
             for imp in acopio.imputaciones
         ]

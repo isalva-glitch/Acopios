@@ -14,6 +14,7 @@ from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
 from models import Pedido, Acopio
 from models.pedido import EstadoPedido
+from services.composicion_normalization import composicion_desde_payload, encontrar_item_por_composicion
 from datetime import date
 
 router = APIRouter()
@@ -265,19 +266,48 @@ async def create_pedido_from_spf(
         db.commit()
         db.refresh(local_pedido)
         
-    # 4. Create Imputation (The Actual Consumption)
+    # 4. Create Imputations by composition. Item numbers are not reliable
+    # between acopio and pedido; composition is the matching key.
     try:
-        imputacion, warning = imputacion_service.imputar_consumo(
-            db,
-            pedido_id=local_pedido.id,
-            acopio_id=acopio.id,
-            acopio_item_id=None, # Overall acopio imputation
-            cantidad_m2=Decimal(str(spf_pedido["totals"]["m2"])),
-            cantidad_ml=Decimal(str(spf_pedido["totals"]["ml"])),
-            cantidad_pesos=Decimal(str(spf_pedido["totals"]["pesos"])),
-            cantidad_unidades=spf_pedido["totals"]["unidades"],
-            procesos=spf_pedido.get("procesos", [])
-        )
+        consumos = []
+        pedido_items = spf_pedido.get("items") or []
+
+        if pedido_items:
+            for pedido_item in pedido_items:
+                pedido_comp = composicion_desde_payload(pedido_item)
+                match = encontrar_item_por_composicion(acopio.items, pedido_comp)
+                matched_item = match.item
+
+                consumos.append({
+                    "pedido_id": local_pedido.id,
+                    "acopio_id": acopio.id,
+                    "acopio_item_id": matched_item.id if matched_item else None,
+                    "cantidad_m2": Decimal(str(pedido_item.get("total_m2") or 0)),
+                    "cantidad_ml": Decimal(str(pedido_item.get("total_ml") or 0)),
+                    "cantidad_pesos": Decimal(str(pedido_item.get("total_pesos") or 0)),
+                    "cantidad_unidades": int(pedido_item.get("total_unidades") or 0),
+                    "procesos": pedido_item.get("procesos", []),
+                    "pedido_item_descripcion": pedido_item.get("descripcion"),
+                    "composicion_normalizada": pedido_comp.firma,
+                    "composicion_match_estado": match.estado,
+                    "composicion_match_score": match.score,
+                    "composicion_advertencia": match.advertencia,
+                })
+        else:
+            consumos.append({
+                "pedido_id": local_pedido.id,
+                "acopio_id": acopio.id,
+                "acopio_item_id": None,
+                "cantidad_m2": Decimal(str(spf_pedido["totals"]["m2"])),
+                "cantidad_ml": Decimal(str(spf_pedido["totals"]["ml"])),
+                "cantidad_pesos": Decimal(str(spf_pedido["totals"]["pesos"])),
+                "cantidad_unidades": spf_pedido["totals"]["unidades"],
+                "procesos": spf_pedido.get("procesos", []),
+                "composicion_match_estado": "global",
+                "composicion_advertencia": "El pedido no trae items desglosados; se imputa a nivel acopio.",
+            })
+
+        imputacion_service.imputar_consumos(db, consumos)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

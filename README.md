@@ -163,6 +163,32 @@ El detalle del acopio incluye una tabla de compensacion por composicion. El calc
 - Las imputaciones nuevas guardan un snapshot de cantidades por composicion para mantener trazabilidad. Si una imputacion anterior no tiene snapshot, el sistema intenta reconstruir el desglose desde SPF.
 - Los importes se muestran con formato argentino: `$ 1.234.567,89`.
 
+## Normalizacion de Composiciones
+
+La composicion del item es la clave para imputar pedidos contra el acopio. El numero de item del pedido no se toma como correspondencia confiable, porque puede cambiar entre presupuesto y pedido.
+
+El sistema normaliza las descripciones de acopio y pedido antes de comparar:
+
+- elimina diferencias de mayusculas, acentos, signos y separadores;
+- ordena componentes para tolerar descripciones equivalentes con distinta ubicacion;
+- unifica sinonimos y errores habituales como `extructural`, `bastidos`, `BP`, `TEM`, `Lam 3+3`;
+- extrae procesos canonicos como vidrio exterior, vidrio interior, camara, pulido, templado, pegado y opacificados;
+- calcula un score de similitud por composicion y procesos.
+
+Al imputar un pedido SPF, cada item del pedido se asigna al item de acopio mas compatible por composicion. Si la composicion es equivalente, se imputa sin advertencia. Si hay diferencias de procesos o no se encuentra una composicion compatible, la imputacion queda marcada con advertencia para control comercial.
+
+Cada imputacion persiste un snapshot de los metadatos de composicion del momento del alta:
+
+| Campo | Descripcion |
+|---|---|
+| `pedido_item_descripcion` | Descripcion original del item en el pedido SPF |
+| `composicion_normalizada` | Texto normalizado resultante del proceso de canonizacion |
+| `composicion_match_estado` | Resultado del matching: `exacta`, `equivalente`, `cambio_composicion`, `sin_correspondencia` |
+| `composicion_match_score` | Score Jaccard ponderado (0–1) entre composicion del pedido y del acopio |
+| `composicion_advertencia` | Mensaje de advertencia si hubo diferencia de procesos o sin correspondencia |
+
+Migration: `20260518_1100_2b6d8f4c1a90_add_imputacion_composicion_fields`
+
 ## Procesos por Item
 
 Durante el alta desde PDF o SPF, el sistema interpreta el detalle de cada item usando descripción, material, tipología, denominación de paños y adicionales. Con esa lectura inicial marca los procesos detectados en el panel del item.
