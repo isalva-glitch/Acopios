@@ -88,7 +88,7 @@ Acopios/
 - `POST /acopios/confirm` - Confirmar y crear acopio
 - `GET /acopios` - Listar acopios
 - `GET /acopios/{id}` - Detalle de acopio
-- `GET /acopios/{id}/compensacion` - Resumen de compensación de procesos
+- `GET /acopios/{id}/resumen-compensacion` - Resumen de compensacion de composiciones
 
 ### Pedidos
 - `POST /pedidos/upload-pdf` - Subir PDF de pedido
@@ -150,7 +150,18 @@ npm run dev
 6. Cambios de material/tipología se registran explícitamente
 7. Los procesos asociados a precios de referencia se interpretan solo durante el alta del acopio
 8. Una vez creado el acopio, abrirlo o modificarlo no vuelve a reinterpretar procesos; los checks quedan bajo control manual
-9. **Compensación**: Se calculan las diferencias entre el total acopiado y el total imputado en pedidos para cada proceso. Si hay diferencias, se valorizan al precio de referencia actual para determinar el impacto económico de los cambios en los pedidos.
+9. **Compensacion**: Se calculan las diferencias entre el total acopiado y el total imputado en pedidos para cada composicion. Las diferencias positivas y negativas se valorizan con precios de referencia y se totalizan por separado para obtener el saldo final.
+
+## Resumen de Compensacion
+
+El detalle del acopio incluye una tabla de compensacion por composicion. El calculo compara solo los pedidos efectivamente imputados al acopio contra las cantidades contratadas del acopio principal.
+
+- `diferencia = cantidad_acopio - cantidad_pedidos_imputados`
+- Las diferencias positivas suman al total positivo.
+- Las diferencias negativas suman al total negativo.
+- El saldo final es `total_positivo + total_negativo`.
+- Las imputaciones nuevas guardan un snapshot de cantidades por composicion para mantener trazabilidad. Si una imputacion anterior no tiene snapshot, el sistema intenta reconstruir el desglose desde SPF.
+- Los importes se muestran con formato argentino: `$ 1.234.567,89`.
 
 ## Procesos por Item
 

@@ -157,31 +157,6 @@ function DetalleAcopio() {
         }
     };
 
-    const updateItemProcesoLocal = (
-        itemId: number,
-        processKey: PrecioReferenciaProcesoKey,
-        checked: boolean
-    ) => {
-        setAcopio((prev: any) => {
-            if (!prev) return prev;
-
-            return {
-                ...prev,
-                items: prev.items.map((item: any) => (
-                    item.id === itemId
-                        ? {
-                            ...item,
-                            procesos: {
-                                ...(item.procesos || {}),
-                                [processKey]: checked
-                            }
-                        }
-                        : item
-                ))
-            };
-        });
-    };
-
     const getItemProcesoCantidad = (
         item: any,
         unidad: PrecioReferenciaProcesoUnidad
@@ -476,7 +451,7 @@ function DetalleAcopio() {
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Proceso</th>
+                                        <th>Composicion</th>
                                         <th>Acopio</th>
                                         <th>Pedidos imputados</th>
                                         <th>Diferencia</th>
