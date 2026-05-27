@@ -22,9 +22,11 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Imputación de consumos con control de excedentes
 - ✅ Anulación de imputaciones con recálculo automático de saldos
 - ✅ Gestión de Precios de Referencia (Base y Actual) para control de rentabilidad
-- ✅ Panel de Procesos por Item (Templado, Laminado, Pulido, etc.) con guardado automático
+- ✅ Panel de Procesos por Item (Templado, Laminado, Pulido, etc.) con guardado explícito
 - ✅ Autodetección inicial de procesos por item al crear el acopio, con edición manual posterior
 - ✅ Módulo de Compensación de Procesos: Cálculo automático de diferencias entre cantidades acopiadas e imputadas por tipo de proceso, con valorización económica basada en precios de referencia.
+- ✅ Panel de Totales con métricas de m², ml y **Paños**: total contratado y saldo disponible visibles en todo momento
+- ✅ Bloqueo de navegación ante cambios sin guardar: al intentar salir con cambios pendientes se solicita confirmación; los cambios se persisten en la base de datos únicamente al confirmar el guardado
 - ✅ Interfaz de usuario optimizada (Alto contraste y scroll horizontal en tablas)
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
@@ -188,6 +190,27 @@ Cada imputacion persiste un snapshot de los metadatos de composicion del momento
 | `composicion_advertencia` | Mensaje de advertencia si hubo diferencia de procesos o sin correspondencia |
 
 Migration: `20260518_1100_2b6d8f4c1a90_add_imputacion_composicion_fields`
+
+## UX: Panel de Totales y Métricas de Paños
+
+El panel **Total Items** en el detalle del acopio muestra, para cada ítem:
+
+- **m²** y **ml**: total contratado con el saldo disponible entre paréntesis — ej. `150,00 m² (80,50)`.
+- **Paños (N)**: cantidad total contratada de paños con el saldo entre paréntesis — ej. `Paños (12) → 8`.
+
+El formato unifica la lectura de todas las magnitudes físicas en un mismo esquema visual.
+
+## UX: Bloqueo de Navegación ante Cambios Pendientes
+
+Cualquier pantalla que permita modificar datos del acopio (procesos por ítem, precios de referencia) utiliza un mecanismo de guardado explícito:
+
+1. Los cambios se aplican localmente de forma optimista sin tocar la base de datos.
+2. Un banner de **"Cambios sin guardar"** aparece en la parte superior indicando que hay modificaciones pendientes.
+3. Si el usuario intenta navegar a otra página, se muestra un diálogo de confirmación.
+4. Solo al confirmar el guardado los cambios se persisten en la base de datos vía API.
+5. Al descartar, se restaura el estado original del acopio.
+
+Esto evita pérdidas de datos accidentales y permite revisar cambios antes de confirmarlos.
 
 ## Procesos por Item
 

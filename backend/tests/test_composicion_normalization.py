@@ -66,3 +66,33 @@ def test_matching_no_depende_del_numero_de_item():
 
     assert match.item.id == 2
     assert match.estado in {MATCH_EQUIVALENT, "exacta"}
+
+
+def test_filtrar_codigos_panos_y_numeros_puros():
+    # Verify that panel marks (pa13, pv2, pfa10), "pdf" extension, and order IDs (23095) are filtered out,
+    # resulting in a Jaccard score of 1.0 (exact match) for otherwise identical glass.
+    acopio = normalizar_composicion([
+        "Laminado 4+4 Incoloro con filos matados pdf pa5 pa10 pa6 pa11 pfa2 23095"
+    ])
+    pedido = normalizar_composicion([
+        "Laminado 4+4 Incoloro con filos matados pa13 pa14 pa4 pa7 pa11 pfa5 pfa7 pf07 23095"
+    ])
+
+    score, diferencias = comparar_composiciones(acopio, pedido)
+    assert score == Decimal("1.0000")
+    assert diferencias == ()
+
+
+def test_advertencia_diferencia_material_sin_procesos():
+    acopio_items = [
+        _item(1, "Laminado 4+4 Incoloro especial grande")
+    ]
+    pedido_comp = normalizar_composicion([
+        "Laminado 4+4 Incoloro comun chico"
+    ])
+
+    match = encontrar_item_por_composicion(acopio_items, pedido_comp)
+    assert match.estado == MATCH_CHANGED
+    assert match.advertencia == "La composicion del pedido difiere de la composicion del acopio en los componentes de material."
+    assert match.diferencias_procesos == ()
+

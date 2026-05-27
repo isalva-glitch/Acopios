@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useBlocker } from 'react-router-dom';
 import apiClient from '../api/client';
 import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
 import type { ResumenCompensacion } from '../types';
@@ -19,6 +19,11 @@ const PROCESO_EXCLUSION_GROUPS: PrecioReferenciaProcesoKey[][] = [
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
     const [acopio, setAcopio] = useState<any>(null);
+    const [originalAcopio, setOriginalAcopio] = useState<any>(null);
+    const [pendingPrecios, setPendingPrecios] = useState<any>(null);
+    const [hasChanges, setHasChanges] = useState(false);
+    const [isSavingAll, setIsSavingAll] = useState(false);
+
     const [avanceComercial, setAvanceComercial] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [loadingAvance, setLoadingAvance] = useState(false);
@@ -37,8 +42,27 @@ function DetalleAcopio() {
     const [anulandoId, setAnulandoId] = useState<number | null>(null);
     const [anulacionError, setAnulacionError] = useState<string | null>(null);
     const [showPreciosModal, setShowPreciosModal] = useState(false);
-    const [itemProcessSaving, setItemProcessSaving] = useState<Record<string, boolean>>({});
     const [itemProcessError, setItemProcessError] = useState<string | null>(null);
+
+    // React Router navigation blocker
+    const blocker = useBlocker(
+        ({ currentLocation, nextLocation }) =>
+            hasChanges && currentLocation.pathname !== nextLocation.pathname
+    );
+
+    // Tab close / reload browser listener
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (hasChanges) {
+                e.preventDefault();
+                e.returnValue = 'Tiene modificaciones sin guardar en el acopio. ¿Desea salir?';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [hasChanges]);
 
     useEffect(() => {
         loadAcopio();
@@ -47,11 +71,22 @@ function DetalleAcopio() {
     const loadAcopio = async () => {
         setLoading(true);
         setError(null);
+        setHasChanges(false);
 
         try {
             const response = await apiClient.get(`/acopios/${id}`);
             const data = response.data;
             setAcopio(data);
+            setOriginalAcopio(JSON.parse(JSON.stringify(data)));
+
+            // Fetch reference prices initially so we have them if they open the modal
+            try {
+                const preciosResponse = await apiClient.get(`/acopios/${id}/precios-referencia`);
+                setPendingPrecios(preciosResponse.data || null);
+            } catch (err) {
+                console.error('Error fetching initial reference prices:', err);
+            }
+
             loadResumenCompensacion(id!);
             
             if (data.v_presupuesto_id) {
@@ -171,25 +206,19 @@ function DetalleAcopio() {
         return formatCurrencyAR(value);
     };
 
-    const handleToggleItemProceso = async (
+    const handleToggleItemProceso = (
         itemId: number,
         processKey: PrecioReferenciaProcesoKey,
         checked: boolean
     ) => {
-        const savingKey = `${itemId}:${processKey}`;
         const item = acopio.items.find((current: any) => current.id === itemId);
+        if (!item) return;
 
         // Determina qué keys cambiarán: la seleccionada + las que hay que desmarcar por exclusión mutua
         const exclusionGroup = PROCESO_EXCLUSION_GROUPS.find(group => group.includes(processKey));
         const keysToUncheck: PrecioReferenciaProcesoKey[] = checked && exclusionGroup
             ? exclusionGroup.filter(k => k !== processKey && Boolean(item?.procesos?.[k]))
             : [];
-
-        // Snapshot del estado anterior para poder revertir si falla la llamada
-        const previousValues: Partial<Record<PrecioReferenciaProcesoKey, boolean>> = {
-            [processKey]: Boolean(item?.procesos?.[processKey]),
-            ...Object.fromEntries(keysToUncheck.map(k => [k, Boolean(item?.procesos?.[k])])),
-        };
 
         // Construye el payload con todos los cambios del grupo
         const payload: Partial<Record<PrecioReferenciaProcesoKey, boolean>> = {
@@ -198,64 +227,95 @@ function DetalleAcopio() {
         };
 
         setItemProcessError(null);
-        setItemProcessSaving(prev => ({ ...prev, [savingKey]: true }));
+        setHasChanges(true);
 
-        // Actualización optimista local
+        // Actualización local de procesos y procesos_detalle
         setAcopio((prev: any) => {
             if (!prev) return prev;
             return {
                 ...prev,
-                items: prev.items.map((current: any) =>
-                    current.id === itemId
-                        ? { ...current, procesos: { ...(current.procesos || {}), ...payload } }
-                        : current
-                ),
+                items: prev.items.map((current: any) => {
+                    if (current.id !== itemId) return current;
+
+                    const newProcesos = { ...(current.procesos || {}), ...payload };
+                    const newProcesosDetalle = { ...(current.procesos_detalle || {}) };
+
+                    // Recalcular localmente processes details
+                    Object.keys(newProcesos).forEach((key) => {
+                        const val = newProcesos[key];
+                        const detail = newProcesosDetalle[key] || { activo: false, cantidad: 0, cantidad_item: 0, unidad: '' };
+                        const unit = detail.unidad || (['pulido', 'camara_offset'].includes(key) ? 'ml' : 'm2');
+                        const itemTotal = unit === 'm2' ? Number(current.totals.m2) : Number(current.totals.ml);
+
+                        newProcesosDetalle[key] = {
+                            ...detail,
+                            activo: val,
+                            unidad: unit,
+                            cantidad: val ? itemTotal : 0,
+                            cantidad_item: itemTotal
+                        };
+                    });
+
+                    return {
+                        ...current,
+                        procesos: newProcesos,
+                        procesos_detalle: newProcesosDetalle
+                    };
+                }),
             };
         });
+    };
 
+    const handleSaveChanges = async () => {
+        setIsSavingAll(true);
+        setItemProcessError(null);
         try {
-            const response = await apiClient.patch(
-                `/acopios/${id}/items/${itemId}/procesos`,
-                payload
-            );
+            // 1. Guardar cambios en procesos de ítems modificados
+            const savePromises = [];
+            for (const item of acopio.items) {
+                const originalItem = originalAcopio.items.find((oi: any) => oi.id === item.id);
+                if (!originalItem) continue;
 
-            setAcopio((prev: any) => {
-                if (!prev) return prev;
+                const changedProcesses: any = {};
+                let hasItemChanges = false;
+                for (const key of Object.keys(item.procesos)) {
+                    if (item.procesos[key] !== originalItem.procesos[key]) {
+                        changedProcesses[key] = item.procesos[key];
+                        hasItemChanges = true;
+                    }
+                }
 
-                return {
-                    ...prev,
-                    items: prev.items.map((current: any) => (
-                        current.id === itemId
-                            ? {
-                                ...current,
-                                procesos: response.data.procesos,
-                                procesos_detalle: response.data.procesos_detalle
-                            }
-                            : current
-                    ))
-                };
-            });
-            loadResumenCompensacion(id!);
+                if (hasItemChanges) {
+                    savePromises.push(
+                        apiClient.patch(`/acopios/${id}/items/${item.id}/procesos`, changedProcesses)
+                    );
+                }
+            }
+            await Promise.all(savePromises);
+
+            // 2. Guardar precios de referencia
+            if (pendingPrecios) {
+                await apiClient.post(`/acopios/${id}/precios-referencia`, pendingPrecios);
+            }
+
+            // Recargar acopio desde la base de datos para refrescar todo
+            setHasChanges(false);
+            await loadAcopio();
         } catch (err: any) {
-            // Revertir al estado anterior
-            setAcopio((prev: any) => {
-                if (!prev) return prev;
-                return {
-                    ...prev,
-                    items: prev.items.map((current: any) =>
-                        current.id === itemId
-                            ? { ...current, procesos: { ...(current.procesos || {}), ...previousValues } }
-                            : current
-                    ),
-                };
-            });
-            setItemProcessError(err.response?.data?.detail || 'No se pudo guardar el proceso del item.');
+            setItemProcessError(err.response?.data?.detail || 'Error al guardar los cambios en la base de datos.');
+            throw err;
         } finally {
-            setItemProcessSaving(prev => {
-                const next = { ...prev };
-                delete next[savingKey];
-                return next;
-            });
+            setIsSavingAll(false);
+        }
+    };
+
+    const handleDiscardChanges = () => {
+        if (window.confirm('¿Está seguro de que desea descartar todas las modificaciones no guardadas?')) {
+            if (originalAcopio) {
+                setAcopio(JSON.parse(JSON.stringify(originalAcopio)));
+                setHasChanges(false);
+                loadAcopio();
+            }
         }
     };
 
@@ -270,6 +330,92 @@ function DetalleAcopio() {
     return (
         <div className="detalle-acopio">
             <h2>Acopio - Presupuesto SPF #{acopio.v_presupuesto_id || acopio.numero}</h2>
+
+            {hasChanges && (
+                <div style={{
+                    backgroundColor: '#fffbe6',
+                    border: '1px solid #ffe58f',
+                    borderRadius: '8px',
+                    padding: '1rem 1.5rem',
+                    marginBottom: '1.5rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '1.5rem' }}>⚠️</span>
+                        <div>
+                            <strong style={{ color: '#d46b08' }}>Modificaciones sin guardar</strong>
+                            <div style={{ fontSize: '0.85rem', color: '#8c8c8c', marginTop: '2px' }}>
+                                Los cambios en la composición o precios de referencia no se guardarán en la base de datos hasta que los confirme.
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={handleDiscardChanges}
+                            disabled={isSavingAll}
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.9rem' }}
+                        >
+                            Descartar
+                        </button>
+                        <button 
+                            className="btn btn-success" 
+                            onClick={handleSaveChanges}
+                            disabled={isSavingAll}
+                            style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem', fontWeight: 'bold' }}
+                        >
+                            {isSavingAll ? 'Guardando...' : '✓ Guardar Cambios'}
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {blocker.state === 'blocked' && (
+                <div className="modal-overlay" style={{ zIndex: 1100 }}>
+                    <div className="modal-content" style={{ maxWidth: '500px', border: '2px solid #f39c12' }}>
+                        <div className="modal-header" style={{ backgroundColor: '#fffbe6', borderBottom: '1px solid #ffe58f' }}>
+                            <h3 style={{ color: '#d46b08', display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
+                                ⚠️ Cambios sin guardar
+                            </h3>
+                        </div>
+                        <div className="modal-body" style={{ padding: '1.5rem', lineHeight: '1.6', color: '#333' }}>
+                            Realizó modificaciones en la composición (procesos) o en los precios de referencia del acopio. ¿Desea guardar estos cambios de forma permanente antes de salir?
+                        </div>
+                        <div className="modal-footer" style={{ padding: '1rem', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                            <button 
+                                className="btn btn-secondary" 
+                                onClick={() => blocker.reset()}
+                                style={{ marginRight: 'auto' }}
+                            >
+                                Seguir Editando
+                            </button>
+                            <button 
+                                className="btn" 
+                                style={{ backgroundColor: '#e74c3c', color: 'white' }}
+                                onClick={() => blocker.proceed()}
+                            >
+                                Salir sin Guardar
+                            </button>
+                            <button 
+                                className="btn btn-success" 
+                                onClick={async () => {
+                                    try {
+                                        await handleSaveChanges();
+                                        blocker.proceed();
+                                    } catch (err) {
+                                        console.error('Error saving before exit:', err);
+                                    }
+                                }}
+                            >
+                                Guardar y Salir
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="form-section detalle-general-section">
                 <div className="detalle-general-header">
@@ -592,6 +738,9 @@ function DetalleAcopio() {
                             </p>
                             <div className="acopio-item-metrics">
                                 <div>
+                                    <strong>Paños:</strong> {item.totals.unidades} (saldo: {item.saldos.unidades})
+                                </div>
+                                <div>
                                     <strong>m²:</strong> {Number(item.totals.m2).toFixed(2)} (saldo: {Number(item.saldos.m2).toFixed(2)})
                                 </div>
                                 <div>
@@ -605,7 +754,7 @@ function DetalleAcopio() {
                             {item.panos.length > 0 && (
                                 <details style={{ marginTop: '0.5rem' }}>
                                     <summary style={{ cursor: 'pointer', fontWeight: 'bold' }}>
-                                        Paños ({item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0)})
+                                        Ver detalle de paños ({item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0)})
                                     </summary>
                                     <div className="table" style={{ marginTop: '0.5rem' }}>
                                         <table>
@@ -669,7 +818,6 @@ function DetalleAcopio() {
                             <div className="item-processes-title">Composicion</div>
                             <div className="item-processes-list">
                                 {PRECIO_REFERENCIA_PROCESOS.map((proceso) => {
-                                    const savingKey = `${item.id}:${proceso.key}`;
                                     const checked = Boolean(item.procesos?.[proceso.key]);
                                     const cantidad = getItemProcesoCantidad(item, proceso.unidad);
 
@@ -682,7 +830,7 @@ function DetalleAcopio() {
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
-                                                disabled={Boolean(itemProcessSaving[savingKey])}
+                                                disabled={isSavingAll}
                                                 onChange={(event) => handleToggleItemProceso(
                                                     item.id,
                                                     proceso.key,
@@ -773,10 +921,11 @@ function DetalleAcopio() {
             {showPreciosModal && (
                 <PreciosReferenciaModal 
                     acopioId={Number(id)} 
+                    initialPrecios={pendingPrecios}
                     onClose={() => setShowPreciosModal(false)}
                     onSave={(data) => {
-                        console.log('Precios guardados:', data);
-                        loadResumenCompensacion(id!);
+                        setPendingPrecios(data);
+                        setHasChanges(true);
                     }}
                 />
             )}

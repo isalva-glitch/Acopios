@@ -7,9 +7,10 @@ interface Props {
     acopioId: number;
     onClose: () => void;
     onSave: (data: PrecioReferencia) => void;
+    initialPrecios?: PrecioReferencia | null;
 }
 
-const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) => {
+const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, initialPrecios }) => {
     const [formData, setFormData] = useState<PrecioReferencia>({
         acopio_id: acopioId,
         vidrio_exterior: 0,
@@ -24,10 +25,14 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
         camara_offset: 0
     });
     const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
+        if (initialPrecios) {
+            setFormData(initialPrecios);
+            setLoading(false);
+            return;
+        }
+
         const fetchPrecios = async () => {
             try {
                 const response = await apiClient.get(`/acopios/${acopioId}/precios-referencia`);
@@ -41,7 +46,7 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
             }
         };
         fetchPrecios();
-    }, [acopioId]);
+    }, [acopioId, initialPrecios]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
@@ -53,17 +58,8 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setSaving(true);
-        setError(null);
-        try {
-            const response = await apiClient.post(`/acopios/${acopioId}/precios-referencia`, formData);
-            onSave(response.data);
-            onClose();
-        } catch (err: any) {
-            setError(err.response?.data?.detail || 'Error al guardar los precios');
-        } finally {
-            setSaving(false);
-        }
+        onSave(formData);
+        onClose();
     };
 
     if (loading) return null;
@@ -77,7 +73,6 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
                 </div>
                 <form onSubmit={handleSubmit}>
                     <div className="modal-body">
-                        {error && <div className="error-message">{error}</div>}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                             {PRECIO_REFERENCIA_PROCESOS.map((proceso) => (
                                 <div className="form-group" key={proceso.key}>
@@ -95,8 +90,8 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave }) 
                     </div>
                     <div className="modal-footer">
                         <button type="button" className="btn btn-secondary" onClick={onClose}>Cancelar</button>
-                        <button type="submit" className="btn btn-primary" disabled={saving}>
-                            {saving ? 'Guardando...' : 'Guardar'}
+                        <button type="submit" className="btn btn-primary">
+                            Guardar
                         </button>
                     </div>
                 </form>

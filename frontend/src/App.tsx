@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link, NavLink, useLocation } from 'react-router-dom'
+import { createBrowserRouter, RouterProvider, Outlet, Link, NavLink, useLocation } from 'react-router-dom'
 import AltaAcopio from './pages/AltaAcopio'
 import ListaAcopios from './pages/ListaAcopios'
 import DetalleAcopio from './pages/DetalleAcopio'
@@ -51,25 +51,11 @@ function AppLayout() {
             <main className="main-content">
                 <div className={isDetalleAcopio ? 'container container-acopio' : 'container'}>
                     <ErrorBoundary>
-                        <Routes>
-                            <Route path="/" element={<Home />} />
-                            <Route path="/acopios" element={<ListaAcopios />} />
-                            <Route path="/acopios/alta" element={<AltaAcopio />} />
-                            <Route path="/acopios/:id" element={<DetalleAcopio />} />
-                            <Route path="/reportes" element={<Reportes />} />
-                        </Routes>
+                        <Outlet />
                     </ErrorBoundary>
                 </div>
             </main>
         </div>
-    )
-}
-
-function App() {
-    return (
-        <Router>
-            <AppLayout />
-        </Router>
     )
 }
 
@@ -93,6 +79,24 @@ function Home() {
             </div>
         </div>
     )
+}
+
+const router = createBrowserRouter([
+    {
+        path: "/",
+        element: <AppLayout />,
+        children: [
+            { path: "", element: <Home /> },
+            { path: "acopios", element: <ListaAcopios /> },
+            { path: "acopios/alta", element: <AltaAcopio /> },
+            { path: "acopios/:id", element: <DetalleAcopio /> },
+            { path: "reportes", element: <Reportes /> }
+        ]
+    }
+]);
+
+function App() {
+    return <RouterProvider router={router} />
 }
 
 export default App

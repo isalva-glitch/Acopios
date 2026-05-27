@@ -436,7 +436,7 @@ async def get_acopio_detail(
                     for adc in item.adicionales
                 ]
             }
-            for item in acopio.items
+            for item in sorted(acopio.items, key=lambda x: (x.numero_item if x.numero_item is not None else 0, x.id or 0))
         ],
         "imputaciones": [
             {

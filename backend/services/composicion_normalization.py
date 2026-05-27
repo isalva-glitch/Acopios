@@ -105,6 +105,9 @@ def _extract_components(text: str, procesos: dict[str, bool]) -> tuple[str, ...]
     # Keep meaningful residual terms so unknown compositions still get a stable key.
     for token in re.findall(r"\b[a-z0-9]{3,}\b", text):
         if token not in _STOPWORDS:
+            # Skip file extensions, panel identifier codes, and pure numeric identifiers
+            if token == "pdf" or re.match(r"^p[a-z]*\d+$", token) or re.match(r"^\d+$", token):
+                continue
             components.add(f"term:{token}")
 
     return tuple(sorted(components))
@@ -253,10 +256,16 @@ def encontrar_item_por_composicion(items: Iterable[object], pedido_comp: Composi
             diferencias_procesos=(),
         )
 
-    warning = (
-        "La composicion del pedido difiere de la composicion del acopio "
-        f"en: {', '.join(best_diffs)}."
-    )
+    if best_diffs:
+        warning = (
+            "La composicion del pedido difiere de la composicion del acopio "
+            f"en: {', '.join(best_diffs)}."
+        )
+    else:
+        warning = (
+            "La composicion del pedido difiere de la composicion del acopio "
+            "en los componentes de material."
+        )
     return ComposicionMatch(
         item=best_item,
         estado=MATCH_CHANGED,
