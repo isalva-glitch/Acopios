@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import apiClient from '../api/client';
 import { PrecioReferencia } from '../types';
-import { PRECIO_REFERENCIA_PROCESOS } from '../constants/preciosReferencia';
+import {
+    PRECIO_REFERENCIA_PROCESOS,
+    type PrecioReferenciaProcesoKey
+} from '../constants/preciosReferencia';
+import { formatDecimalInput, formatNumberAR, parseDecimalInput } from '../utils/formatters';
 
 interface Props {
     acopioId: number;
@@ -10,25 +14,40 @@ interface Props {
     initialPrecios?: PrecioReferencia | null;
 }
 
+type PrecioReferenciaInputValues = Record<PrecioReferenciaProcesoKey, string>;
+
+const createDefaultPrecios = (acopioId: number): PrecioReferencia => ({
+    acopio_id: acopioId,
+    vidrio_exterior: 0,
+    vidrio_interior: 0,
+    camara_estructural: 0,
+    pulido: 0,
+    fason_templado_exterior: 0,
+    pegado_bastidor: 0,
+    camara_normal: 0,
+    opacificado_perimetral: 0,
+    opacificado_total: 0,
+    camara_offset: 0
+});
+
+const createInputValues = (precios: PrecioReferencia): PrecioReferenciaInputValues =>
+    PRECIO_REFERENCIA_PROCESOS.reduce((values, proceso) => {
+        values[proceso.key] = formatNumberAR(precios[proceso.key], 2);
+        return values;
+    }, {} as PrecioReferenciaInputValues);
+
 const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, initialPrecios }) => {
-    const [formData, setFormData] = useState<PrecioReferencia>({
-        acopio_id: acopioId,
-        vidrio_exterior: 0,
-        vidrio_interior: 0,
-        camara_estructural: 0,
-        pulido: 0,
-        fason_templado_exterior: 0,
-        pegado_bastidor: 0,
-        camara_normal: 0,
-        opacificado_perimetral: 0,
-        opacificado_total: 0,
-        camara_offset: 0
-    });
+    const defaultPrecios = createDefaultPrecios(acopioId);
+    const [formData, setFormData] = useState<PrecioReferencia>(defaultPrecios);
+    const [inputValues, setInputValues] = useState<PrecioReferenciaInputValues>(
+        createInputValues(defaultPrecios)
+    );
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (initialPrecios) {
             setFormData(initialPrecios);
+            setInputValues(createInputValues(initialPrecios));
             setLoading(false);
             return;
         }
@@ -38,6 +57,11 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, in
                 const response = await apiClient.get(`/acopios/${acopioId}/precios-referencia`);
                 if (response.data) {
                     setFormData(response.data);
+                    setInputValues(createInputValues(response.data));
+                } else {
+                    const emptyPrecios = createDefaultPrecios(acopioId);
+                    setFormData(emptyPrecios);
+                    setInputValues(createInputValues(emptyPrecios));
                 }
             } catch (err) {
                 console.error('Error fetching reference prices:', err);
@@ -50,9 +74,29 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, in
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
+        const precioKey = name as PrecioReferenciaProcesoKey;
+
+        setInputValues(prev => ({
+            ...prev,
+            [precioKey]: value
+        }));
         setFormData(prev => ({
             ...prev,
-            [name]: parseFloat(value) || 0
+            [precioKey]: parseDecimalInput(value)
+        }));
+    };
+
+    const handleFocus = (key: PrecioReferenciaProcesoKey) => {
+        setInputValues(prev => ({
+            ...prev,
+            [key]: formatDecimalInput(formData[key])
+        }));
+    };
+
+    const handleBlur = (key: PrecioReferenciaProcesoKey) => {
+        setInputValues(prev => ({
+            ...prev,
+            [key]: formatNumberAR(formData[key], 2)
         }));
     };
 
@@ -77,13 +121,19 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, in
                             {PRECIO_REFERENCIA_PROCESOS.map((proceso) => (
                                 <div className="form-group" key={proceso.key}>
                                     <label>{proceso.label}</label>
-                                    <input
-                                        type="number"
-                                        name={proceso.key}
-                                        value={formData[proceso.key]}
-                                        onChange={handleChange}
-                                        step="0.01"
-                                    />
+                                    <div className="currency-input-wrapper">
+                                        <span>$</span>
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            name={proceso.key}
+                                            value={inputValues[proceso.key]}
+                                            onChange={handleChange}
+                                            onFocus={() => handleFocus(proceso.key)}
+                                            onBlur={() => handleBlur(proceso.key)}
+                                            placeholder="0,00"
+                                        />
+                                    </div>
                                 </div>
                             ))}
                         </div>
@@ -151,11 +201,40 @@ const PreciosReferenciaModal: React.FC<Props> = ({ acopioId, onClose, onSave, in
                     font-weight: 500;
                     font-size: 0.9rem;
                 }
+                .currency-input-wrapper {
+                    display: flex;
+                    align-items: center;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    background: #fff;
+                    overflow: hidden;
+                }
+                .currency-input-wrapper span {
+                    padding: 0 0.5rem;
+                    color: #555;
+                    white-space: nowrap;
+                }
+                .currency-input-wrapper input {
+                    flex: 1;
+                    width: 100%;
+                    padding: 0.5rem 0.5rem 0.5rem 0;
+                    border: 0;
+                    outline: none;
+                    min-width: 0;
+                }
                 .form-group input {
                     width: 100%;
                     padding: 0.5rem;
                     border: 1px solid #ccc;
                     border-radius: 4px;
+                }
+                .form-group .currency-input-wrapper input {
+                    padding: 0.5rem 0.5rem 0.5rem 0;
+                    border: 0;
+                    border-radius: 0;
+                }
+                .currency-input-wrapper:focus-within {
+                    border-color: #3498db;
                 }
                 .error-message {
                     color: #721c24;

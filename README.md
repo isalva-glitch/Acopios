@@ -164,6 +164,7 @@ El detalle del acopio incluye una tabla de compensacion por composicion. El calc
 - El saldo final es `total_positivo + total_negativo`.
 - Las imputaciones nuevas guardan un snapshot de cantidades por composicion para mantener trazabilidad. Si una imputacion anterior no tiene snapshot, el sistema intenta reconstruir el desglose desde SPF.
 - Los importes se muestran con formato argentino: `$ 1.234.567,89`.
+- En la ventana de precios de referencia, los importes se editan aceptando `.` como separador decimal (ej. `1234.56`) y se muestran en formato argentino al salir del campo.
 
 ## Normalizacion de Composiciones
 
