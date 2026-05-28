@@ -441,12 +441,6 @@ function DetalleAcopio() {
                                 {showImputer ? 'Cancelar Imputación' : 'Imputar Nuevo Pedido'}
                             </button>
                         )}
-                        <button 
-                            className="btn btn-secondary" 
-                            onClick={() => setShowPreciosModal(true)}
-                        >
-                            Precios de referencia
-                        </button>
                     </div>
                 </div>
             </div>
@@ -564,112 +558,6 @@ function DetalleAcopio() {
                 </div>
             </div>
 
-            <div className="form-section resumen-compensacion-section">
-                <div className="resumen-compensacion-header">
-                    <h3>Resumen de compensacion</h3>
-                    {loadingResumenCompensacion && <span>Actualizando...</span>}
-                </div>
-
-                {resumenCompensacionError && (
-                    <div className="item-process-error">
-                        {resumenCompensacionError}
-                    </div>
-                )}
-
-                {resumenCompensacion && (
-                    <>
-                        <div className="resumen-compensacion-totals">
-                            <div>
-                                <span>Total positivo</span>
-                                <strong className="amount-positive">{formatCurrencyAR(resumenCompensacion.totals.positivo)}</strong>
-                            </div>
-                            <div>
-                                <span>Total negativo</span>
-                                <strong className="amount-negative">{formatSignedCurrency(resumenCompensacion.totals.negativo)}</strong>
-                            </div>
-                            <div>
-                                <span>Saldo</span>
-                                <strong className={resumenCompensacion.totals.saldo < 0 ? 'amount-negative' : 'amount-positive'}>
-                                    {formatSignedCurrency(resumenCompensacion.totals.saldo)}
-                                </strong>
-                            </div>
-                        </div>
-
-                        {resumenCompensacion.warnings.length > 0 && (
-                            <div className="warning-box resumen-compensacion-warnings">
-                                {resumenCompensacion.warnings.map((warning, index) => (
-                                    <div className="warning-item warning" key={`${warning}-${index}`}>
-                                        {warning}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className="table resumen-compensacion-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Composicion</th>
-                                        <th>Acopio</th>
-                                        <th>Pedidos imputados</th>
-                                        <th>Diferencia</th>
-                                        <th>Precio ref.</th>
-                                        <th>Importe</th>
-                                        <th>Detalle</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {resumenCompensacion.rows.map((row) => (
-                                        <tr className={`compensacion-row ${row.estado}`} key={row.proceso}>
-                                            <td>
-                                                <strong>{row.label}</strong>
-                                                {row.precio_faltante && <span className="missing-price">Sin precio</span>}
-                                            </td>
-                                            <td>{formatCantidad(row.cantidad_acopio, row.unidad)}</td>
-                                            <td>{formatCantidad(row.cantidad_pedidos, row.unidad)}</td>
-                                            <td className={row.diferencia < 0 ? 'amount-negative' : row.diferencia > 0 ? 'amount-positive' : ''}>
-                                                {formatCantidad(row.diferencia, row.unidad)}
-                                            </td>
-                                            <td>{formatCurrencyAR(row.precio_referencia)}</td>
-                                            <td className={row.importe < 0 ? 'amount-negative' : row.importe > 0 ? 'amount-positive' : ''}>
-                                                {formatSignedCurrency(row.importe)}
-                                            </td>
-                                            <td>
-                                                <details>
-                                                    <summary>Ver</summary>
-                                                    <div className="compensacion-detail">
-                                                        <strong>Acopio</strong>
-                                                        {row.items_acopio.length > 0 ? (
-                                                            row.items_acopio.map((item) => (
-                                                                <div key={item.item_id}>
-                                                                    Item {item.item_id}: {formatCantidad(item.cantidad, row.unidad)}
-                                                                </div>
-                                                            ))
-                                                        ) : (
-                                                            <div>Sin cantidad asignada</div>
-                                                        )}
-                                                        <strong>Pedidos</strong>
-                                                        {row.pedidos.length > 0 ? (
-                                                            row.pedidos.map((pedido) => (
-                                                                <div key={`${pedido.imputacion_id}-${pedido.pedido_numero || 'pedido'}`}>
-                                                                    Pedido {pedido.pedido_numero || pedido.pedido_id}: {formatCantidad(pedido.cantidad, row.unidad)}
-                                                                </div>
-                                                            ))
-                                                        ) : (
-                                                            <div>Sin cantidad imputada</div>
-                                                        )}
-                                                    </div>
-                                                </details>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </>
-                )}
-            </div>
-            
             {avanceComercial && (
                 <div className="form-section">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -917,6 +805,121 @@ function DetalleAcopio() {
                     </div>
                 </div>
             )}
+
+            <div className="form-section resumen-compensacion-section">
+                <div className="resumen-compensacion-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                        <h3 style={{ margin: 0 }}>Resumen de compensacion</h3>
+                        <button 
+                            className="btn btn-secondary" 
+                            onClick={() => setShowPreciosModal(true)}
+                            style={{ padding: '0.3rem 0.8rem', fontSize: '0.85rem' }}
+                        >
+                            Precios de referencia
+                        </button>
+                    </div>
+                    {loadingResumenCompensacion && <span>Actualizando...</span>}
+                </div>
+
+                {resumenCompensacionError && (
+                    <div className="item-process-error">
+                        {resumenCompensacionError}
+                    </div>
+                )}
+
+                {resumenCompensacion && (
+                    <>
+                        <div className="resumen-compensacion-totals">
+                            <div>
+                                <span>Total positivo</span>
+                                <strong className="amount-positive">{formatCurrencyAR(resumenCompensacion.totals.positivo)}</strong>
+                            </div>
+                            <div>
+                                <span>Total negativo</span>
+                                <strong className="amount-negative">{formatSignedCurrency(resumenCompensacion.totals.negativo)}</strong>
+                            </div>
+                            <div>
+                                <span>Saldo</span>
+                                <strong className={resumenCompensacion.totals.saldo < 0 ? 'amount-negative' : 'amount-positive'}>
+                                    {formatSignedCurrency(resumenCompensacion.totals.saldo)}
+                                </strong>
+                            </div>
+                        </div>
+
+                        {resumenCompensacion.warnings.length > 0 && (
+                            <div className="warning-box resumen-compensacion-warnings">
+                                {resumenCompensacion.warnings.map((warning, index) => (
+                                    <div className="warning-item warning" key={`${warning}-${index}`}>
+                                        {warning}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="table resumen-compensacion-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Composicion</th>
+                                        <th>Acopio</th>
+                                        <th>Pedidos imputados</th>
+                                        <th>Diferencia</th>
+                                        <th>Precio ref.</th>
+                                        <th>Importe</th>
+                                        <th>Detalle</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {resumenCompensacion.rows.map((row) => (
+                                        <tr className={`compensacion-row ${row.estado}`} key={row.proceso}>
+                                            <td>
+                                                <strong>{row.label}</strong>
+                                                {row.precio_faltante && <span className="missing-price">Sin precio</span>}
+                                            </td>
+                                            <td>{formatCantidad(row.cantidad_acopio, row.unidad)}</td>
+                                            <td>{formatCantidad(row.cantidad_pedidos, row.unidad)}</td>
+                                            <td className={row.diferencia < 0 ? 'amount-negative' : row.diferencia > 0 ? 'amount-positive' : ''}>
+                                                {formatCantidad(row.diferencia, row.unidad)}
+                                            </td>
+                                            <td>{formatCurrencyAR(row.precio_referencia)}</td>
+                                            <td className={row.importe < 0 ? 'amount-negative' : row.importe > 0 ? 'amount-positive' : ''}>
+                                                {formatSignedCurrency(row.importe)}
+                                            </td>
+                                            <td>
+                                                <details>
+                                                    <summary>Ver</summary>
+                                                    <div className="compensacion-detail">
+                                                        <strong>Acopio</strong>
+                                                        {row.items_acopio.length > 0 ? (
+                                                            row.items_acopio.map((item) => (
+                                                                <div key={item.item_id}>
+                                                                    Item {item.item_id}: {formatCantidad(item.cantidad, row.unidad)}
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div>Sin cantidad asignada</div>
+                                                        )}
+                                                        <strong>Pedidos</strong>
+                                                        {row.pedidos.length > 0 ? (
+                                                            row.pedidos.map((pedido) => (
+                                                                <div key={`${pedido.imputacion_id}-${pedido.pedido_numero || 'pedido'}`}>
+                                                                    Pedido {pedido.pedido_numero || pedido.pedido_id}: {formatCantidad(pedido.cantidad, row.unidad)}
+                                                                </div>
+                                                            ))
+                                                        ) : (
+                                                            <div>Sin cantidad imputada</div>
+                                                        )}
+                                                    </div>
+                                                </details>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )}
+            </div>
 
             {showPreciosModal && (
                 <PreciosReferenciaModal 

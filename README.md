@@ -165,6 +165,7 @@ El detalle del acopio incluye una tabla de compensacion por composicion. El calc
 - Las imputaciones nuevas guardan un snapshot de cantidades por composicion para mantener trazabilidad. Si una imputacion anterior no tiene snapshot, el sistema intenta reconstruir el desglose desde SPF.
 - Los importes se muestran con formato argentino: `$ 1.234.567,89`.
 - En la ventana de precios de referencia, los importes se editan aceptando `.` como separador decimal (ej. `1234.56`) y se muestran en formato argentino al salir del campo.
+- En el detalle del acopio, el panel de resumen de compensacion queda al final de la pagina y contiene el acceso a precios de referencia en su encabezado.
 
 ## Normalizacion de Composiciones
 
