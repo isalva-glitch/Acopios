@@ -166,6 +166,7 @@ El detalle del acopio incluye una tabla de compensacion por composicion. El calc
 - Los importes se muestran con formato argentino: `$ 1.234.567,89`.
 - En la ventana de precios de referencia, los importes se editan aceptando `.` como separador decimal (ej. `1234.56`) y se muestran en formato argentino al salir del campo.
 - En el detalle del acopio, el panel de resumen de compensacion queda al final de la pagina y contiene el acceso a precios de referencia en su encabezado.
+- El panel de Totales y Saldos comparte seccion con Consumos Aplicados, para ver el total contratado, saldo disponible e imputaciones recientes sin perder el resumen de compensacion final.
 
 ## Normalizacion de Composiciones
 
@@ -192,6 +193,16 @@ Cada imputacion persiste un snapshot de los metadatos de composicion del momento
 | `composicion_advertencia` | Mensaje de advertencia si hubo diferencia de procesos o sin correspondencia |
 
 Migration: `20260518_1100_2b6d8f4c1a90_add_imputacion_composicion_fields`
+
+## UX: Panel de Totales y Consumos Aplicados
+
+El detalle del acopio combina **Totales y Saldos** con un resumen lateral de **Consumos Aplicados**:
+
+- Totales muestra cantidad, m2, ml y pesos contratados contra saldo disponible.
+- Consumos Aplicados lista cada imputacion con numero de pedido, importe, fecha del pedido y marca de excedente cuando corresponde.
+- El total consumido se calcula desde las imputaciones visibles y el disponible reutiliza el saldo del acopio.
+- Los remitos y facturas relacionados quedan en un bloque colapsable para control documental sin ocupar espacio permanente.
+- La API de detalle expone `imputaciones[].fecha` desde la fecha del pedido SPF para mantener la cronologia visible en la UI.
 
 ## UX: Panel de Totales y Métricas de Paños
 

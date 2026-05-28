@@ -567,6 +567,170 @@
     margin-top: 0;
 }
 
+/* === DUAL PANEL: TOTALES Y CONSUMOS === */
+.totales-consumos-grid {
+    display: grid;
+    grid-template-columns: 40% 1fr;
+    gap: 0;
+    min-height: 220px;
+}
+.totales-panel {
+    padding: 0 2rem 0 0;
+    border-right: 1px solid #e2e8ee;
+}
+.totales-panel .table {
+    box-shadow: none;
+    border: 1px solid #e2e8ee;
+}
+.totales-panel .table table {
+    min-width: 100%;
+}
+.totales-panel .table th,
+.totales-panel .table td {
+    padding: 0.6rem 0.8rem;
+    font-size: 0.88rem;
+}
+.consumos-panel {
+    padding: 0 0 0 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+.consumos-panel-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: #52616b;
+    margin-bottom: 0.75rem;
+}
+.consumos-loading {
+    color: #6b7280;
+    font-size: 0.76rem;
+    font-weight: 600;
+    text-transform: none;
+    white-space: nowrap;
+}
+.consumos-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex: 1;
+}
+.consumos-list-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 4px;
+    font-size: 0.88rem;
+    border-bottom: 1px solid #f0f3f5;
+}
+.consumos-list-item:last-child {
+    border-bottom: none;
+}
+.consumos-list-item:hover {
+    background: #f8f9fa;
+}
+.consumos-pedido-num {
+    font-weight: 700;
+    color: #2c3e50;
+    white-space: nowrap;
+}
+.consumos-importe {
+    text-align: right;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.consumos-importe.negativo {
+    color: #b42318;
+}
+.consumos-fecha {
+    color: #52616b;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+.consumos-badge-excedente {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: #fef3c7;
+    color: #b45309;
+    white-space: nowrap;
+}
+.consumos-empty {
+    color: #95a5a6;
+    font-size: 0.88rem;
+    font-style: italic;
+    padding: 1rem 0;
+}
+.consumos-footer {
+    border-top: 1px solid #e2e8ee;
+    padding-top: 0.85rem;
+    margin-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.consumos-footer-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.85rem;
+}
+.consumos-footer-label {
+    color: #52616b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.consumos-footer-valor {
+    font-weight: 700;
+    font-size: 1rem;
+}
+.consumos-footer-valor.disponible {
+    color: #1f7a45;
+}
+.consumos-footer-valor.consumido {
+    color: #2c3e50;
+}
+.remitos-collapsible {
+    margin-top: 0.85rem;
+}
+.remitos-collapsible summary {
+    cursor: pointer;
+    color: #3498db;
+    font-size: 0.82rem;
+    font-weight: 600;
+    list-style: none;
+    user-select: none;
+}
+.remitos-collapsible summary::-webkit-details-marker {
+    display: none;
+}
+.remitos-collapsible-body {
+    margin-top: 0.5rem;
+    padding: 0.6rem 0.8rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #e2e8ee;
+    font-size: 0.82rem;
+}
+.remito-row {
+    display: flex;
+    gap: 1rem;
+    padding: 0.25rem 0;
+    border-bottom: 1px solid #eee;
+}
+.remito-row:last-child {
+    border-bottom: none;
+}
+
 @media (max-width: 768px) {
     .navbar .container {
         align-items: flex-start;
@@ -623,5 +787,18 @@
 
     .resumen-compensacion-totals {
         grid-template-columns: 1fr;
+    }
+
+    /* Mobile dual-panel adjustment */
+    .totales-consumos-grid {
+        grid-template-columns: 1fr;
+    }
+    .totales-panel {
+        padding: 0 0 1.5rem 0;
+        border-right: none;
+        border-bottom: 1px solid #e2e8ee;
+    }
+    .consumos-panel {
+        padding: 1.5rem 0 0 0;
     }
 }

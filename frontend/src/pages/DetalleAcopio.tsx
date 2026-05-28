@@ -521,93 +521,138 @@ function DetalleAcopio() {
                 </div>
             )}
 
-            <div className="form-section">
-                <h3>Totales y Saldos</h3>
-                <div className="table">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th></th>
-                                <th>Total Contratado</th>
-                                <th>Saldo Disponible</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td><strong>Cantidad</strong></td>
-                                <td>{acopio.totals.unidades}</td>
-                                <td>{acopio.saldos.unidades}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>m²</strong></td>
-                                <td>{Number(acopio.totals.m2).toFixed(2)}</td>
-                                <td>{Number(acopio.saldos.m2).toFixed(2)}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>ml</strong></td>
-                                <td>{Number(acopio.totals.ml).toFixed(2)}</td>
-                                <td>{Number(acopio.saldos.ml).toFixed(2)}</td>
-                            </tr>
-                            <tr>
-                                <td><strong>Pesos</strong></td>
-                                <td>{formatCurrencyAR(acopio.totals.pesos)}</td>
-                                <td>{formatCurrencyAR(acopio.saldos.pesos)}</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {avanceComercial && (
-                <div className="form-section">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                        <h3>Avance Comercial y Documental</h3>
-                        {loadingAvance && <span style={{ fontSize: '0.8rem', color: '#666' }}>Actualizando...</span>}
-                    </div>
-                    
-                    <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1.2rem', backgroundColor: '#fff', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1.5rem', alignItems: 'center' }}>
-                            <div>
-                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Total Presupuesto</div>
-                                <div style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{formatCurrencyAR(avanceComercial.resumen.importe_total)}</div>
-                            </div>
-                            
-                            <div>
-                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Avance Facturado</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ flex: 1, height: '12px', backgroundColor: '#e9ecef', borderRadius: '6px', overflow: 'hidden' }}>
-                                        <div style={{ width: `${avanceComercial.resumen.porcentaje_facturado}%`, height: '100%', backgroundColor: '#3498db' }}></div>
-                                    </div>
-                                    <span style={{ fontWeight: 'bold', minWidth: '40px' }}>{avanceComercial.resumen.porcentaje_facturado.toFixed(0)}%</span>
-                                </div>
-                            </div>
-
-                            <div>
-                                <div style={{ fontSize: '0.85rem', color: '#666', marginBottom: '0.3rem' }}>Avance Remitido</div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <div style={{ flex: 1, height: '12px', backgroundColor: '#e9ecef', borderRadius: '6px', overflow: 'hidden' }}>
-                                        <div style={{ width: `${avanceComercial.resumen.porcentaje_remitido}%`, height: '100%', backgroundColor: '#f39c12' }}></div>
-                                    </div>
-                                    <span style={{ fontWeight: 'bold', minWidth: '40px' }}>{avanceComercial.resumen.porcentaje_remitido.toFixed(0)}%</span>
-                                </div>
-                            </div>
-
-                            <div style={{ textAlign: 'right' }}>
-                                <details style={{ cursor: 'pointer' }}>
-                                    <summary style={{ fontSize: '0.85rem', color: '#3498db' }}>Ver Detalle Pedidos</summary>
-                                    <div style={{ marginTop: '1rem', textAlign: 'left', fontSize: '0.8rem', borderTop: '1px solid #eee', paddingTop: '0.5rem' }}>
-                                        {avanceComercial.pedidos.map((p: any) => (
-                                            <div key={p.id} style={{ marginBottom: '4px' }}>
-                                                Pedido {p.nro_pedido}: <strong>{p.estado}</strong>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </details>
-                            </div>
+            {/* === LAYOUT DUAL: Totales + Consumos === */}
+            <div className="form-section" style={{ padding: '1.5rem 2rem' }}>
+                <div className="totales-consumos-grid">
+                    {/* Panel izquierdo: Totales y Saldos */}
+                    <div className="totales-panel">
+                        <h3 style={{ marginBottom: '1rem', color: '#2c3e50' }}>Totales y Saldos</h3>
+                        <div className="table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th></th>
+                                        <th>Contratado</th>
+                                        <th>Saldo</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td><strong>Cantidad</strong></td>
+                                        <td>{acopio.totals.unidades}</td>
+                                        <td>{acopio.saldos.unidades}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>m²</strong></td>
+                                        <td>{Number(acopio.totals.m2).toFixed(2)}</td>
+                                        <td>{Number(acopio.saldos.m2).toFixed(2)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>ml</strong></td>
+                                        <td>{Number(acopio.totals.ml).toFixed(2)}</td>
+                                        <td>{Number(acopio.saldos.ml).toFixed(2)}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Pesos</strong></td>
+                                        <td>{formatCurrencyAR(acopio.totals.pesos)}</td>
+                                        <td>{formatCurrencyAR(acopio.saldos.pesos)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
+
+                    {/* Panel derecho: Consumos Aplicados */}
+                    <div className="consumos-panel">
+                        <div className="consumos-panel-title">
+                            <span>Consumos Aplicados</span>
+                            {loadingAvance && <span className="consumos-loading">Actualizando...</span>}
+                        </div>
+
+                        {acopio.imputaciones.length === 0 ? (
+                            <div className="consumos-empty">Sin consumos registrados</div>
+                        ) : (
+                            <ul className="consumos-list">
+                                {acopio.imputaciones.map((imp: any) => {
+                                    const fecha = imp.fecha
+                                        ? new Date(imp.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })
+                                        : '';
+                                    const isNegativo = imp.cantidad_pesos < 0;
+                                    return (
+                                        <li key={imp.id} className="consumos-list-item">
+                                            <span className="consumos-pedido-num">Ped. {imp.pedido_numero}</span>
+                                            <span className={`consumos-importe${isNegativo ? ' negativo' : ''}`}>
+                                                {formatCurrencyAR(imp.cantidad_pesos)}
+                                            </span>
+                                            <span className="consumos-fecha">{fecha}</span>
+                                            {imp.es_excedente && (
+                                                <span className="consumos-badge-excedente">⚠ Excedente</span>
+                                            )}
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        )}
+
+                        {acopio.imputaciones.length > 0 && (
+                            <div className="consumos-footer">
+                                <div className="consumos-footer-row">
+                                    <span className="consumos-footer-label">Consumido</span>
+                                    <span className="consumos-footer-valor consumido">
+                                        {formatCurrencyAR(
+                                            acopio.imputaciones.reduce((acc: number, imp: any) => acc + imp.cantidad_pesos, 0)
+                                        )}
+                                    </span>
+                                </div>
+                                <div className="consumos-footer-row">
+                                    <span className="consumos-footer-label">Disponible</span>
+                                    <span className="consumos-footer-valor disponible">
+                                        {formatCurrencyAR(acopio.saldos.pesos)}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Colapsable remitos — solo si hay SPF */}
+                        {avanceComercial && avanceComercial.pedidos.length > 0 && (
+                            <details className="remitos-collapsible">
+                                <summary>▼ Remitos relacionados</summary>
+                                <div className="remitos-collapsible-body">
+                                    {(() => {
+                                        // Extraemos comprobantes únicos por número para evitar duplicados en el renderizado
+                                        const uniqueComps: any[] = [];
+                                        const seen = new Set<string>();
+
+                                        avanceComercial.pedidos.forEach((p: any) => {
+                                            p.items?.forEach((item: any) => {
+                                                item.comprobantes?.forEach((c: any) => {
+                                                    const key = `${c.nro_factura || ''}-${c.nro_remito || ''}`;
+                                                    if (key !== '-' && !seen.has(key)) {
+                                                        seen.add(key);
+                                                        uniqueComps.push({ ...c, pedidoId: p.id });
+                                                    }
+                                                });
+                                            });
+                                        });
+
+                                        if (uniqueComps.length === 0) {
+                                            return <div style={{ color: '#95a5a6', fontStyle: 'italic' }}>Sin documentos asignados</div>;
+                                        }
+
+                                        return uniqueComps.map((c: any, idx: number) => (
+                                            <div key={`${c.pedidoId}-${idx}`} className="remito-row">
+                                                {c.nro_factura && <span>Fact. {c.nro_factura}</span>}
+                                                {c.nro_remito && <span>Rem. {c.nro_remito}</span>}
+                                                {c.empresa && <span style={{ color: '#52616b' }}>{c.empresa}</span>}
+                                            </div>
+                                        ));
+                                    })()}
+                                </div>
+                            </details>
+                        )}
+                    </div>
                 </div>
-            )}
+            </div>
 
 
             <div className="form-section">
