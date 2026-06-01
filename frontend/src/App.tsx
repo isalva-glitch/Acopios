@@ -9,7 +9,15 @@ import './App.css'
 function AppLayout() {
     const location = useLocation()
     const isHome = location.pathname === '/'
+    const isListaAcopios = location.pathname === '/acopios'
     const isDetalleAcopio = /^\/acopios\/[^/]+$/.test(location.pathname) && location.pathname !== '/acopios/alta'
+    const isInformes = location.pathname === '/reportes'
+    const contentContainerClassName = [
+        'container',
+        isDetalleAcopio ? 'container-acopio' : '',
+        isListaAcopios ? 'container-acopios-listado' : '',
+        isInformes ? 'container-informes' : '',
+    ].filter(Boolean).join(' ')
 
     return (
         <div className="app">
@@ -40,7 +48,7 @@ function AppLayout() {
                             </li>
                             <li>
                                 <NavLink to="/reportes" end>
-                                    Reportes
+                                    Informes
                                 </NavLink>
                             </li>
                         </ul>
@@ -49,7 +57,7 @@ function AppLayout() {
             )}
 
             <main className="main-content">
-                <div className={isDetalleAcopio ? 'container container-acopio' : 'container'}>
+                <div className={contentContainerClassName}>
                     <ErrorBoundary>
                         <Outlet />
                     </ErrorBoundary>
@@ -73,8 +81,8 @@ function Home() {
                     <p>Listado de saldos activos</p>
                 </Link>
                 <Link to="/reportes" className="card">
-                    <h3>Reportes</h3>
-                    <p>Consultas y estadísticas</p>
+                    <h3>Informes</h3>
+                    <p>Panel ejecutivo y consultas</p>
                 </Link>
             </div>
         </div>

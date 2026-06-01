@@ -30,7 +30,7 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Interfaz de usuario optimizada (Alto contraste y scroll horizontal en tablas)
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
-- ✅ Reportes de acopios activos, excedentes y vencimientos
+- ✅ Vista Informes con KPIs, filtros, ranking por obra, tabla ejecutiva y exportación CSV
 - ✅ Validación automática con warnings
 
 ## Setup Rápido
@@ -101,10 +101,30 @@ Acopios/
 - `POST /imputaciones` - Imputar consumo contra acopio
 - `DELETE /imputaciones/{id}` - Anular imputación y restaurar saldos acopio
 
-### Reportes
+### Reportes / Informes
 - `GET /reportes/acopios-activos` - Acopios con saldo
 - `GET /reportes/excedentes` - Imputaciones excedentes
 - `GET /reportes/vencimientos-precio` - Próximos vencimientos
+
+## UX: Informes Ejecutivos
+
+La ruta `/reportes` se presenta como **Informes**, un tablero operativo sin dependencias nuevas de gráficos. Reutiliza los endpoints existentes y conserva la exportación CSV por informe.
+
+- Carga automáticamente el informe seleccionado.
+- Permite alternar entre Acopios activos, Excedentes y Vencimientos.
+- Incluye buscador por obra, cliente, acopio o pedido.
+- Agrega filtro por estado cuando el informe devuelve estados.
+- Muestra KPIs de importe analizado, registros, m², ml y alertas.
+- Calcula un ranking por obra con barras CSS y una lectura rápida de concentración, promedio por registro y estado del tablero.
+- Mantiene una tabla ejecutiva unificada para inspección operativa.
+
+## UX: Ancho de Acopios
+
+El listado `/acopios` y el detalle `/acopios/:id` usan contenedores específicos para evitar barras de desplazamiento innecesarias en escritorio sin afectar alta de acopios ni otras pantallas.
+
+- `/acopios` usa un contenedor más ancho y columnas compactas para que los saldos y acciones entren en la vista principal.
+- `/acopios/:id` usa todo el ancho disponible y cortes responsivos para items, totales y consumos.
+- Las tablas conservan scroll horizontal solo como respaldo cuando el contenido no puede reducirse más.
 
 ## Testing
 

@@ -537,7 +537,16 @@ async def get_acopio_avance_comercial(
         raise HTTPException(status_code=400, detail="Este acopio no está vinculado a un presupuesto SPF")
         
     try:
-        avance = spf_services.get_avance_comercial_acopio(spf_db, acopio.v_presupuesto_id)
+        pedidos_imputados = sorted({
+            imp.pedido.numero
+            for imp in acopio.imputaciones
+            if imp.pedido and imp.pedido.numero
+        })
+        avance = spf_services.get_avance_comercial_acopio(
+            spf_db,
+            acopio.v_presupuesto_id,
+            pedidos_imputados,
+        )
         return avance
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

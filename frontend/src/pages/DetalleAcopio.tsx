@@ -205,6 +205,33 @@ function DetalleAcopio() {
         if (value < 0) return `- ${formatCurrencyAR(Math.abs(value))}`;
         return formatCurrencyAR(value);
     };
+    const getPedidosDocumentados = () => {
+        if (!avanceComercial?.pedidos) return [];
+
+        return avanceComercial.pedidos
+            .map((pedido: any) => {
+                const documentos: any[] = [];
+                const seen = new Set<string>();
+                const addDocumento = (doc: any) => {
+                    const key = `${doc?.nro_factura || ''}-${doc?.nro_remito || ''}-${doc?.empresa || ''}`;
+                    if (key === '--' || seen.has(key)) return;
+                    seen.add(key);
+                    documentos.push(doc);
+                };
+
+                pedido.comprobantes?.forEach(addDocumento);
+                pedido.items?.forEach((item: any) => {
+                    item.comprobantes?.forEach(addDocumento);
+                });
+
+                return {
+                    id: pedido.id,
+                    nro_pedido: pedido.nro_pedido,
+                    estado: pedido.estado,
+                    documentos,
+                };
+            });
+    };
 
     const handleToggleItemProceso = (
         itemId: number,
@@ -594,6 +621,53 @@ function DetalleAcopio() {
                             </ul>
                         )}
 
+                        {/* Colapsable documental asociado a los pedidos imputados */}
+                        {acopio.imputaciones.length > 0 && (
+                            <details className="remitos-collapsible">
+                                <summary>
+                                    {(() => {
+                                        const documentosCount = getPedidosDocumentados()
+                                            .reduce((acc: number, pedido: any) => acc + pedido.documentos.length, 0);
+                                        return documentosCount > 0
+                                            ? `Remitos y facturas relacionados (${documentosCount})`
+                                            : 'Remitos y facturas relacionados';
+                                    })()}
+                                </summary>
+                                <div className="remitos-collapsible-body">
+                                    {(() => {
+                                        if (loadingAvance) {
+                                            return <div className="remito-empty">Actualizando documentos...</div>;
+                                        }
+
+                                        const pedidosDocumentados = getPedidosDocumentados();
+                                        if (!avanceComercial || pedidosDocumentados.length === 0) {
+                                            return <div className="remito-empty">Sin documentos asignados</div>;
+                                        }
+
+                                        return pedidosDocumentados.map((pedido: any) => (
+                                            <div key={pedido.id || pedido.nro_pedido} className="remito-pedido-group">
+                                                <div className="remito-pedido-title">
+                                                    <span>Pedido {pedido.nro_pedido}</span>
+                                                    {pedido.estado && <span>{pedido.estado}</span>}
+                                                </div>
+                                                {pedido.documentos.length === 0 ? (
+                                                    <div className="remito-empty">Sin facturas ni remitos asociados</div>
+                                                ) : (
+                                                    pedido.documentos.map((doc: any, idx: number) => (
+                                                        <div key={`${pedido.id || pedido.nro_pedido}-${idx}`} className="remito-row">
+                                                            {doc.nro_factura && <span>Factura {doc.nro_factura}</span>}
+                                                            {doc.nro_remito && <span>Remito {doc.nro_remito}</span>}
+                                                            {doc.empresa && <span>{doc.empresa}</span>}
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        ));
+                                    })()}
+                                </div>
+                            </details>
+                        )}
+
                         {acopio.imputaciones.length > 0 && (
                             <div className="consumos-footer">
                                 <div className="consumos-footer-row">
@@ -611,44 +685,6 @@ function DetalleAcopio() {
                                     </span>
                                 </div>
                             </div>
-                        )}
-
-                        {/* Colapsable remitos — solo si hay SPF */}
-                        {avanceComercial && avanceComercial.pedidos.length > 0 && (
-                            <details className="remitos-collapsible">
-                                <summary>▼ Remitos relacionados</summary>
-                                <div className="remitos-collapsible-body">
-                                    {(() => {
-                                        // Extraemos comprobantes únicos por número para evitar duplicados en el renderizado
-                                        const uniqueComps: any[] = [];
-                                        const seen = new Set<string>();
-
-                                        avanceComercial.pedidos.forEach((p: any) => {
-                                            p.items?.forEach((item: any) => {
-                                                item.comprobantes?.forEach((c: any) => {
-                                                    const key = `${c.nro_factura || ''}-${c.nro_remito || ''}`;
-                                                    if (key !== '-' && !seen.has(key)) {
-                                                        seen.add(key);
-                                                        uniqueComps.push({ ...c, pedidoId: p.id });
-                                                    }
-                                                });
-                                            });
-                                        });
-
-                                        if (uniqueComps.length === 0) {
-                                            return <div style={{ color: '#95a5a6', fontStyle: 'italic' }}>Sin documentos asignados</div>;
-                                        }
-
-                                        return uniqueComps.map((c: any, idx: number) => (
-                                            <div key={`${c.pedidoId}-${idx}`} className="remito-row">
-                                                {c.nro_factura && <span>Fact. {c.nro_factura}</span>}
-                                                {c.nro_remito && <span>Rem. {c.nro_remito}</span>}
-                                                {c.empresa && <span style={{ color: '#52616b' }}>{c.empresa}</span>}
-                                            </div>
-                                        ));
-                                    })()}
-                                </div>
-                            </details>
                         )}
                     </div>
                 </div>

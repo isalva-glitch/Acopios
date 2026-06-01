@@ -34,6 +34,52 @@ def _to_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _presupuesto_lookup_values(v_presupuesto_id: str):
+    raw_value = str(v_presupuesto_id or "").strip()
+    text_values = {raw_value}
+    numeric_value = None
+
+    if raw_value.isdigit():
+        numeric_value = int(raw_value)
+        text_values.add(str(numeric_value))
+        text_values.add(str(numeric_value).zfill(9))
+
+    return numeric_value, list(text_values)
+
+
+def _empresa_from_talonario(talonario: str | None) -> str | None:
+    if not talonario:
+        return None
+    if "Tango A" in talonario:
+        return "Fontela"
+    if "Tango B" in talonario:
+        return "Viviana"
+    return talonario
+
+
+def _dedupe_comprobantes(comprobantes):
+    out = []
+    seen = set()
+
+    for comprobante in comprobantes:
+        key = (
+            comprobante.nro_factura or "",
+            comprobante.nro_remito or "",
+            comprobante.talonario or "",
+        )
+        if key == ("", "", "") or key in seen:
+            continue
+
+        seen.add(key)
+        out.append({
+            "nro_factura": comprobante.nro_factura,
+            "nro_remito": comprobante.nro_remito,
+            "empresa": _empresa_from_talonario(comprobante.talonario),
+        })
+
+    return out
+
+
 def _get_complement_names(db: Session, items):
     complement_ids = {
         comp.v_complemento_id
@@ -243,14 +289,53 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
     }
 
 
-def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
+def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos: list[str] | None = None):
     """
     Obtiene el avance comercial y documental detallado de un acopio (presupuesto).
     Analiza todos los pedidos de producción vinculados a este presupuesto único y
     consolida su estado de facturación y remitos.
     """
-    # 1. Get items and their orders
-    items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == v_presupuesto_id).all()
+    # 1. Get items and their orders. SPF installations differ on whether the
+    # budget id is stored as text with leading zeros or as a plain integer.
+    presupuesto_int, presupuesto_texts = _presupuesto_lookup_values(v_presupuesto_id)
+    pedido_ids_por_presupuesto = []
+    if presupuesto_int is not None:
+        pedido_ids_por_presupuesto = [
+            row[0]
+            for row in db.query(SpfPedido.id)
+            .filter(SpfPedido.id_presupuesto == presupuesto_int)
+            .all()
+        ]
+
+    pedido_ids_por_numero = []
+    pedido_texts = [
+        str(nro_pedido).strip()
+        for nro_pedido in (nro_pedidos or [])
+        if str(nro_pedido or "").strip()
+    ]
+    pedido_ints = [int(nro_pedido) for nro_pedido in pedido_texts if nro_pedido.isdigit()]
+    pedido_filters = []
+    if pedido_ints:
+        pedido_filters.append(SpfPedido.id.in_(pedido_ints))
+        pedido_filters.append(SpfPedido.nro_pedido.in_(pedido_ints))
+    if pedido_texts:
+        pedido_filters.append(cast(SpfPedido.nro_pedido, String).in_(pedido_texts))
+        pedido_filters.append(SpfPedido.nrooc.in_(pedido_texts))
+    if pedido_filters:
+        pedido_ids_por_numero = [
+            row[0]
+            for row in db.query(SpfPedido.id)
+            .filter(or_(*pedido_filters))
+            .all()
+        ]
+
+    pedido_ids_relacionados = list(set(pedido_ids_por_presupuesto + pedido_ids_por_numero))
+
+    item_filters = [cast(SpfItem.v_presupuesto_id, String).in_(presupuesto_texts)]
+    if pedido_ids_relacionados:
+        item_filters.append(SpfItem.pedido_id.in_(pedido_ids_relacionados))
+
+    items = db.query(SpfItem).filter(or_(*item_filters)).all()
     if not items:
         return None
 
@@ -313,13 +398,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
             SpfLineaTangoRemitida, SpfComprobanteTemp.id == SpfLineaTangoRemitida.comprobante_temp_id
         ).filter(SpfLineaTangoRemitida.tango_body_id.in_(all_body_ids)).all()
         
-        comprobantes = []
-        for c in set(comp_fact + comp_remit):
-            comprobantes.append({
-                "nro_factura": c.nro_factura,
-                "nro_remito": c.nro_remito,
-                "empresa": "Fontela" if "Tango A" in (c.talonario or "") else "Viviana" if "Tango B" in (c.talonario or "") else c.talonario
-            })
+        comprobantes = _dedupe_comprobantes(comp_fact + comp_remit)
 
         perc_f = (float(f_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
         perc_r = (float(r_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
@@ -331,6 +410,11 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
     for p in pedidos:
         p_items = [it for it in items if it.pedido_id == p.id]
         items_detail = []
+        pedido_comprobantes = _dedupe_comprobantes(
+            db.query(SpfComprobanteTemp)
+            .filter(SpfComprobanteTemp.pedido_id == p.id)
+            .all()
+        )
         
         for it in p_items:
             # Item Medidas
@@ -379,9 +463,10 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str):
 
         pedidos_out.append({
             "id": p.id,
-            "nro_pedido": p.nro_pedido,
+            "nro_pedido": p.nro_pedido or str(p.id),
             "estado": ESTADOS_PEDIDO.get(p.estado_id, f"Estado {p.estado_id}"),
             "cliente": cliente_map.get(p.cliente_id, "Desconocido"),
+            "comprobantes": pedido_comprobantes,
             "items": items_detail
         })
 

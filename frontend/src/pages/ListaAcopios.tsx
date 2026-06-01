@@ -51,10 +51,6 @@ function ListaAcopios() {
         return {
             backgroundColor: colors[estado] || '#95a5a6',
             color: 'white',
-            padding: '0.25rem 0.5rem',
-            borderRadius: '4px',
-            fontSize: '0.85rem',
-            display: 'inline-block',
         };
     };
 
@@ -117,7 +113,7 @@ function ListaAcopios() {
                                 <tr key={acopio.id}>
                                     <td>{acopio.numero}</td>
                                     <td>
-                                        <span style={getEstadoBadge(acopio.estado)}>
+                                        <span className="estado-badge" style={getEstadoBadge(acopio.estado)}>
                                             {acopio.estado}
                                         </span>
                                     </td>
@@ -129,7 +125,7 @@ function ListaAcopios() {
                                     <td>{Number(acopio.saldo_ml).toFixed(2)}</td>
                                     <td>{formatCurrencyAR(acopio.saldo_pesos)}</td>
                                     <td>
-                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                                             <Link to={`/acopios/${acopio.id}`} className="btn btn-primary" style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }}>
                                                 Detalle
                                             </Link>
