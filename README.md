@@ -6,6 +6,7 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 
 - **Backend**: Python + FastAPI + SQLAlchemy + Alembic
 - **Frontend**: React + TypeScript + Vite
+- **Gráficos**: Recharts en la vista de Informes
 - **Base de datos**: PostgreSQL
 - **PDF Processing**: pdfplumber (con fallback a camelot/tabula)
 - **Validación**: jsonschema (draft 2020-12)
@@ -26,11 +27,12 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Autodetección inicial de procesos por item al crear el acopio, con edición manual posterior
 - ✅ Módulo de Compensación de Procesos: Cálculo automático de diferencias entre cantidades acopiadas e imputadas por tipo de proceso, con valorización económica basada en precios de referencia.
 - ✅ Panel de Totales con métricas de m², ml y **Paños**: total contratado y saldo disponible visibles en todo momento
+- ✅ Fecha de vencimiento obligatoria del acopio, editable manualmente desde Información General y persistida en base de datos
 - ✅ Bloqueo de navegación ante cambios sin guardar: al intentar salir con cambios pendientes se solicita confirmación; los cambios se persisten en la base de datos únicamente al confirmar el guardado
 - ✅ Interfaz de usuario optimizada (Alto contraste y scroll horizontal en tablas)
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
-- ✅ Vista Informes con KPIs, filtros, ranking por obra, tabla ejecutiva y exportación CSV
+- ✅ Vista Informes con KPIs, filtros avanzados, gráficos por obra/estado/tiempo, tabla ejecutiva y exportación CSV
 - ✅ Validación automática con warnings
 
 ## Setup Rápido
@@ -90,6 +92,7 @@ Acopios/
 - `POST /acopios/confirm` - Confirmar y crear acopio
 - `GET /acopios` - Listar acopios
 - `GET /acopios/{id}` - Detalle de acopio
+- `PATCH /acopios/{id}` - Actualizar campos manuales obligatorios del acopio, incluyendo `fecha_vencimiento`
 - `GET /acopios/{id}/resumen-compensacion` - Resumen de compensacion de composiciones
 
 ### Pedidos
@@ -108,15 +111,25 @@ Acopios/
 
 ## UX: Informes Ejecutivos
 
-La ruta `/reportes` se presenta como **Informes**, un tablero operativo sin dependencias nuevas de gráficos. Reutiliza los endpoints existentes y conserva la exportación CSV por informe.
+La ruta `/reportes` se presenta como **Informes**, un tablero operativo con gráficos Recharts cargado de forma diferida desde el frontend. Reutiliza los endpoints existentes y conserva la exportación CSV por informe.
 
 - Carga automáticamente el informe seleccionado.
 - Permite alternar entre Acopios activos, Excedentes y Vencimientos.
 - Incluye buscador por obra, cliente, acopio o pedido.
-- Agrega filtro por estado cuando el informe devuelve estados.
+- Agrega filtros por obra, cliente, estado y rango de fechas, con botón para limpiar filtros activos.
 - Muestra KPIs de importe analizado, registros, m², ml y alertas.
-- Calcula un ranking por obra con barras CSS y una lectura rápida de concentración, promedio por registro y estado del tablero.
+- Grafica barras por obra, distribución por estado y línea temporal mensual del importe filtrado.
+- Calcula una lectura rápida de concentración, promedio por registro, filtros aplicados y estado del tablero.
 - Mantiene una tabla ejecutiva unificada para inspección operativa.
+
+## UX: Fecha de Vencimiento del Acopio
+
+El detalle `/acopios/:id` muestra en **Información General** un campo manual de tipo fecha para `fecha_vencimiento`.
+
+- El campo se persiste en la tabla `acopios` mediante la migración `20260602_1000_c7a4d8e9f012_add_acopio_fecha_vencimiento`.
+- La API devuelve `fecha_vencimiento` en listados y detalle, y permite actualizarla con `PATCH /acopios/{id}`.
+- En la UI el ingreso es obligatorio: si la fecha queda vacía, se muestra un error y se bloquea el guardado de cambios.
+- La columna de base de datos admite valores nulos para no inventar fechas en acopios existentes; la obligatoriedad se aplica al flujo manual del detalle.
 
 ## UX: Ancho de Acopios
 
@@ -235,7 +248,7 @@ El formato unifica la lectura de todas las magnitudes físicas en un mismo esque
 
 ## UX: Bloqueo de Navegación ante Cambios Pendientes
 
-Cualquier pantalla que permita modificar datos del acopio (procesos por ítem, precios de referencia) utiliza un mecanismo de guardado explícito:
+Cualquier pantalla que permita modificar datos del acopio (fecha de vencimiento, procesos por ítem, precios de referencia) utiliza un mecanismo de guardado explícito:
 
 1. Los cambios se aplican localmente de forma optimista sin tocar la base de datos.
 2. Un banner de **"Cambios sin guardar"** aparece en la parte superior indicando que hay modificaciones pendientes.

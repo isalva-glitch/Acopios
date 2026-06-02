@@ -98,11 +98,11 @@ echo Para reiniciar:        docker-compose restart
 echo.
 
 REM Preguntar si desea abrir el navegador
-set /p OPEN_BROWSER="Desea abrir el sistema en el navegador? (S/N): "
-if /i "%OPEN_BROWSER%"=="S" (
-    echo Abriendo navegador...
-    start http://localhost:5173
-)
+REM set /p OPEN_BROWSER="Desea abrir el sistema en el navegador? (S/N): "
+REM if /i "%OPEN_BROWSER%"=="S" (
+REM    echo Abriendo navegador...
+start http://localhost:5173
+REM )
 
 echo.
 echo Presione cualquier tecla para salir...

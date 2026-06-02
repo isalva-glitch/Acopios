@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel
 from decimal import Decimal
+from datetime import date
 
 from database import get_db
 from storage import save_file
@@ -111,6 +112,7 @@ class AcopioResponse(BaseModel):
     numero: Optional[str] = None
     obra_id: Optional[int] = None
     fecha_alta: str
+    fecha_vencimiento: Optional[str] = None
     estado: str
     total_m2: float
     total_ml: float
@@ -125,6 +127,11 @@ class AcopioResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class AcopioUpdate(BaseModel):
+    """Manual updates for acopio-level required fields."""
+    fecha_vencimiento: date
 
 
 @router.post("/upload-pdf", response_model=AcopioPreview)
@@ -233,6 +240,7 @@ async def confirm_acopio(
         numero=acopio.numero,
         obra_id=acopio.obra_id,
         fecha_alta=acopio.fecha_alta.isoformat() if acopio.fecha_alta else "",
+        fecha_vencimiento=acopio.fecha_vencimiento.isoformat() if acopio.fecha_vencimiento else None,
         estado=acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
         total_m2=acopio.total_m2 or Decimal('0'),
         total_ml=acopio.total_ml or Decimal('0'),
@@ -325,6 +333,7 @@ async def list_acopios(
             numero=a.numero,
             obra_id=a.obra_id,
             fecha_alta=a.fecha_alta.isoformat() if a.fecha_alta else "",
+            fecha_vencimiento=a.fecha_vencimiento.isoformat() if a.fecha_vencimiento else None,
             estado=a.estado.value if hasattr(a.estado, 'value') else str(a.estado),
             total_m2=a.total_m2 or Decimal('0'),
             total_ml=a.total_ml or Decimal('0'),
@@ -370,6 +379,7 @@ async def get_acopio_detail(
         "origen_datos": acopio.origen_datos,
         "v_presupuesto_id": acopio.v_presupuesto_id,
         "fecha_alta": acopio.fecha_alta.isoformat() if acopio.fecha_alta else None,
+        "fecha_vencimiento": acopio.fecha_vencimiento.isoformat() if acopio.fecha_vencimiento else None,
         "estado": acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
         "totals": {
             "m2": float(acopio.total_m2 or 0),
@@ -457,6 +467,39 @@ async def get_acopio_detail(
             }
             for imp in acopio.imputaciones
         ]
+    }
+
+
+@router.patch("/{acopio_id}")
+async def update_acopio(
+    acopio_id: int,
+    payload: AcopioUpdate,
+    db: Session = Depends(get_db)
+):
+    """Update required manual acopio fields."""
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+
+    if not acopio:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Acopio not found"
+        )
+
+    acopio.fecha_vencimiento = payload.fecha_vencimiento
+
+    try:
+        db.commit()
+        db.refresh(acopio)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update acopio: {str(e)}"
+        )
+
+    return {
+        "id": acopio.id,
+        "fecha_vencimiento": acopio.fecha_vencimiento.isoformat()
     }
 
 

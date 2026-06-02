@@ -1,10 +1,12 @@
+import { lazy, Suspense } from 'react'
 import { createBrowserRouter, RouterProvider, Outlet, Link, NavLink, useLocation } from 'react-router-dom'
 import AltaAcopio from './pages/AltaAcopio'
 import ListaAcopios from './pages/ListaAcopios'
 import DetalleAcopio from './pages/DetalleAcopio'
-import Reportes from './pages/Reportes'
 import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
+
+const Reportes = lazy(() => import('./pages/Reportes'))
 
 function AppLayout() {
     const location = useLocation()
@@ -98,7 +100,14 @@ const router = createBrowserRouter([
             { path: "acopios", element: <ListaAcopios /> },
             { path: "acopios/alta", element: <AltaAcopio /> },
             { path: "acopios/:id", element: <DetalleAcopio /> },
-            { path: "reportes", element: <Reportes /> }
+            {
+                path: "reportes",
+                element: (
+                    <Suspense fallback={<div className="loading">Cargando informes...</div>}>
+                        <Reportes />
+                    </Suspense>
+                )
+            }
         ]
     }
 ]);

@@ -5,6 +5,7 @@ export interface Acopio {
     numero: string;
     obra_id: number;
     fecha_alta: string;
+    fecha_vencimiento?: string | null;
     estado: string;
     total_m2: number;
     total_ml: number;

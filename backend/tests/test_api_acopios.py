@@ -110,3 +110,52 @@ def test_get_acopio_detail(client, db_session):
     data = response.json()
     assert data["numero"] == "TEST002"
     assert data["obra"]["nombre"] == "Obra Test 2"
+    assert data["fecha_vencimiento"] is None
+
+
+def test_update_acopio_fecha_vencimiento(client, db_session):
+    """Test manually setting the required acopio expiration date."""
+    package = {
+        "meta": {
+            "extraction_date": "2024-01-01T00:00:00",
+            "pdf_filename": "test.pdf",
+            "pdf_hash": "c" * 64,
+            "extractor_version": "1.0.0"
+        },
+        "acopio": {
+            "numero": "TEST003",
+            "fecha_alta": "2024-01-01",
+            "obra": "Obra Test 3",
+            "cliente": "Cliente Test 3",
+            "total_m2": 200.0,
+            "total_ml": 100.0,
+            "total_pesos": 20000.00
+        },
+        "presupuestos": [],
+        "items": [],
+        "panos": [],
+        "pedidos": [],
+        "remitos": [],
+        "imputaciones": [],
+        "comprobantes": [],
+        "afectaciones_acopio": [],
+        "documentos": [],
+        "warnings": []
+    }
+
+    create_response = client.post("/acopios/confirm", json={"extraction_package": package})
+    acopio_id = create_response.json()["id"]
+
+    empty_response = client.patch(f"/acopios/{acopio_id}", json={})
+    assert empty_response.status_code == 422
+
+    update_response = client.patch(
+        f"/acopios/{acopio_id}",
+        json={"fecha_vencimiento": "2026-12-31"}
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["fecha_vencimiento"] == "2026-12-31"
+
+    detail_response = client.get(f"/acopios/{acopio_id}")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["fecha_vencimiento"] == "2026-12-31"

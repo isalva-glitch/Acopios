@@ -43,6 +43,7 @@ function DetalleAcopio() {
     const [anulacionError, setAnulacionError] = useState<string | null>(null);
     const [showPreciosModal, setShowPreciosModal] = useState(false);
     const [itemProcessError, setItemProcessError] = useState<string | null>(null);
+    const [fechaVencimientoError, setFechaVencimientoError] = useState<string | null>(null);
 
     // React Router navigation blocker
     const blocker = useBlocker(
@@ -72,6 +73,7 @@ function DetalleAcopio() {
         setLoading(true);
         setError(null);
         setHasChanges(false);
+        setFechaVencimientoError(null);
 
         try {
             const response = await apiClient.get(`/acopios/${id}`);
@@ -194,6 +196,12 @@ function DetalleAcopio() {
         }
     };
 
+    const handleFechaVencimientoChange = (value: string) => {
+        setAcopio((prev: any) => prev ? { ...prev, fecha_vencimiento: value } : prev);
+        setFechaVencimientoError(value ? null : 'La fecha de vencimiento del acopio es obligatoria.');
+        setHasChanges(true);
+    };
+
     const getItemProcesoCantidad = (
         item: any,
         unidad: PrecioReferenciaProcesoUnidad
@@ -294,10 +302,23 @@ function DetalleAcopio() {
     };
 
     const handleSaveChanges = async () => {
+        const fechaVencimiento = acopio?.fecha_vencimiento || '';
+        if (!fechaVencimiento) {
+            setFechaVencimientoError('La fecha de vencimiento del acopio es obligatoria.');
+            throw new Error('La fecha de vencimiento del acopio es obligatoria.');
+        }
+
         setIsSavingAll(true);
         setItemProcessError(null);
         try {
-            // 1. Guardar cambios en procesos de ítems modificados
+            // 1. Guardar fecha de vencimiento del acopio
+            if (fechaVencimiento !== originalAcopio?.fecha_vencimiento) {
+                await apiClient.patch(`/acopios/${id}`, {
+                    fecha_vencimiento: fechaVencimiento
+                });
+            }
+
+            // 2. Guardar cambios en procesos de items modificados
             const savePromises = [];
             for (const item of acopio.items) {
                 const originalItem = originalAcopio.items.find((oi: any) => oi.id === item.id);
@@ -320,7 +341,7 @@ function DetalleAcopio() {
             }
             await Promise.all(savePromises);
 
-            // 2. Guardar precios de referencia
+            // 3. Guardar precios de referencia
             if (pendingPrecios) {
                 await apiClient.post(`/acopios/${id}/precios-referencia`, pendingPrecios);
             }
@@ -354,6 +375,9 @@ function DetalleAcopio() {
         return <div className="error">{error || 'Acopio no encontrado'}</div>;
     }
 
+    const fechaVencimientoMissing = !acopio.fecha_vencimiento;
+    const canSaveChanges = !isSavingAll && !fechaVencimientoMissing;
+
     return (
         <div className="detalle-acopio">
             <h2>Acopio - Presupuesto SPF #{acopio.v_presupuesto_id || acopio.numero}</h2>
@@ -375,7 +399,7 @@ function DetalleAcopio() {
                         <div>
                             <strong style={{ color: '#d46b08' }}>Modificaciones sin guardar</strong>
                             <div style={{ fontSize: '0.85rem', color: '#8c8c8c', marginTop: '2px' }}>
-                                Los cambios en la composición o precios de referencia no se guardarán en la base de datos hasta que los confirme.
+                                Los cambios en la fecha de vencimiento, composición o precios de referencia no se guardarán en la base de datos hasta que los confirme.
                             </div>
                         </div>
                     </div>
@@ -391,7 +415,7 @@ function DetalleAcopio() {
                         <button 
                             className="btn btn-success" 
                             onClick={handleSaveChanges}
-                            disabled={isSavingAll}
+                            disabled={!canSaveChanges}
                             style={{ padding: '0.5rem 1.25rem', fontSize: '0.9rem', fontWeight: 'bold' }}
                         >
                             {isSavingAll ? 'Guardando...' : '✓ Guardar Cambios'}
@@ -409,7 +433,7 @@ function DetalleAcopio() {
                             </h3>
                         </div>
                         <div className="modal-body" style={{ padding: '1.5rem', lineHeight: '1.6', color: '#333' }}>
-                            Realizó modificaciones en la composición (procesos) o en los precios de referencia del acopio. ¿Desea guardar estos cambios de forma permanente antes de salir?
+                            Realizó modificaciones en la fecha de vencimiento, composición (procesos) o precios de referencia del acopio. ¿Desea guardar estos cambios de forma permanente antes de salir?
                         </div>
                         <div className="modal-footer" style={{ padding: '1rem', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
                             <button 
@@ -428,6 +452,7 @@ function DetalleAcopio() {
                             </button>
                             <button 
                                 className="btn btn-success" 
+                                disabled={!canSaveChanges}
                                 onClick={async () => {
                                     try {
                                         await handleSaveChanges();
@@ -454,6 +479,24 @@ function DetalleAcopio() {
                         <strong>Obra:</strong> {avanceComercial?.obra || acopio.obra?.nombre || `Presupuesto: ${acopio.v_presupuesto_id}`}<br />
                         <strong>Fecha Alta:</strong> {new Date(acopio.fecha_alta).toLocaleDateString()}<br />
                         <strong>Estado:</strong> {acopio.estado}
+                        <div className="detalle-vencimiento-field">
+                            <label htmlFor="fecha-vencimiento-acopio">
+                                Fecha de vencimiento <span aria-hidden="true">*</span>
+                            </label>
+                            <input
+                                id="fecha-vencimiento-acopio"
+                                type="date"
+                                required
+                                value={acopio.fecha_vencimiento || ''}
+                                onChange={(event) => handleFechaVencimientoChange(event.target.value)}
+                                aria-invalid={fechaVencimientoMissing}
+                            />
+                            {(fechaVencimientoError || fechaVencimientoMissing) && (
+                                <div className="detalle-field-error">
+                                    {fechaVencimientoError || 'La fecha de vencimiento del acopio es obligatoria.'}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     <div className="detalle-actions">
                         {acopio.estado === 'CONSUMIDO' ? (

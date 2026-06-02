@@ -388,8 +388,9 @@
 
 .informes-filtros {
     display: grid;
-    grid-template-columns: minmax(260px, 2fr) minmax(180px, 1fr) minmax(180px, 1fr);
+    grid-template-columns: minmax(260px, 2fr) repeat(5, minmax(150px, 1fr));
     gap: 1rem;
+    align-items: end;
     padding: 1rem;
     background: #ffffff;
     border: 1px solid #d9e2ec;
@@ -434,6 +435,11 @@
 
 .informe-contexto strong {
     color: #1a2b3c;
+}
+
+.informes-clear-filters {
+    min-height: 2.65rem;
+    align-self: end;
 }
 
 .kpi-grid {
@@ -492,6 +498,13 @@
     color: #b42318;
 }
 
+.charts-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    gap: 1rem;
+    align-items: stretch;
+}
+
 .informes-layout {
     display: grid;
     grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
@@ -524,6 +537,42 @@
     margin: 0.25rem 0 0;
     color: #52616b;
     font-size: 0.9rem;
+}
+
+.chart-card {
+    display: flex;
+    flex-direction: column;
+}
+
+.chart-card-wide {
+    min-width: 0;
+}
+
+.chart-container {
+    width: 100%;
+    min-height: 320px;
+    flex: 1;
+}
+
+.chart-container-compact {
+    min-height: 260px;
+}
+
+.chart-container .empty-state {
+    height: 100%;
+    min-height: inherit;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.recharts-wrapper {
+    font-family: inherit;
+}
+
+.recharts-cartesian-axis-tick-value,
+.recharts-legend-item-text {
+    font-size: 0.78rem;
 }
 
 .bar-chart {
@@ -759,6 +808,42 @@
 
 .detalle-general-state {
     color: #34495e;
+}
+
+.detalle-vencimiento-field {
+    max-width: 260px;
+    margin-top: 1rem;
+    line-height: 1.35;
+}
+
+.detalle-vencimiento-field label {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #2c3e50;
+    font-weight: 700;
+}
+
+.detalle-vencimiento-field input {
+    width: 100%;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #ccd6dd;
+    border-radius: 4px;
+    font-size: 1rem;
+}
+
+.detalle-vencimiento-field input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.detalle-vencimiento-field input[aria-invalid="true"] {
+    border-color: #c0392b;
+}
+
+.detalle-field-error {
+    margin-top: 0.35rem;
+    color: #c0392b;
+    font-size: 0.88rem;
 }
 
 .detalle-acopio .table {
@@ -1200,7 +1285,8 @@
 
     .informes-tabs,
     .informes-filtros,
-    .informes-layout {
+    .informes-layout,
+    .charts-grid {
         grid-template-columns: 1fr;
     }
 

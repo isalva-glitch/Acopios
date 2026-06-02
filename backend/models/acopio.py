@@ -41,7 +41,8 @@ class Acopio(BaseModel):
     saldo_pesos = Column(Numeric(15, 2), nullable=False, default=0)
     saldo_unidades = Column(Integer, nullable=False, default=0)
     
-    # Vencimiento de precio
+    # Vencimientos
+    fecha_vencimiento = Column(Date, nullable=True)
     fecha_vencimiento_precio = Column(Date, nullable=True)
     
     # Foreign keys
