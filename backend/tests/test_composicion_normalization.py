@@ -96,3 +96,41 @@ def test_advertencia_diferencia_material_sin_procesos():
     assert match.advertencia == "La composicion del pedido difiere de la composicion del acopio en los componentes de material."
     assert match.diferencias_procesos == ()
 
+
+def test_cambio_material_se_registra_como_evento_no_equivalencia_global():
+    acopio_items = [
+        _item(1, "DVH Eclipse Advantage Grey + Camara 12 Estructural + Templado Float 6 Incoloro + Pegado estructural"),
+    ]
+    pedido_comp = normalizar_composicion([
+        "DVH Eclipse Advantage Grey + Templado 5 / 6 Low E + Camara 12 Estructural + Laminado 3+3 Incoloro + Pegado estructural"
+    ])
+
+    match = encontrar_item_por_composicion(acopio_items, pedido_comp)
+
+    assert match.item.id == 1
+    assert match.estado == MATCH_CHANGED
+    assert match.diferencias_procesos == ()
+    assert match.advertencia == (
+        "Evento de cambio de material detectado: contratado Templado 6, Float; "
+        "pedido Laminado 3+3."
+    )
+
+
+def test_cambio_material_no_desplaza_item_offset_opacificado():
+    acopio_items = [
+        _item(1, "DVH Eclipse Advantage Grey + Camara 12 Estructural + Templado Float 6 Incoloro + Pegado estructural"),
+        _item(4, "DVH Eclipse Advantage Grey + Camara 12 Estructural Offset + Templado Float 6 Incoloro + Opacificado negro en bandas o parciales + Pegado estructural"),
+    ]
+    pedido_comp = normalizar_composicion([
+        "DVH Eclipse Advantage Grey + Templado 5 / 6 Low E + Camara 12 Estructural Offset + Laminado 3+3 Incoloro + Opacificado perimetral + Pegado estructural"
+    ])
+
+    match = encontrar_item_por_composicion(acopio_items, pedido_comp)
+
+    assert match.item.id == 4
+    assert match.estado == MATCH_CHANGED
+    assert match.advertencia == (
+        "Evento de cambio de material detectado: contratado Templado 6, Float; "
+        "pedido Laminado 3+3."
+    )
+    assert match.diferencias_procesos == ()

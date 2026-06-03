@@ -211,9 +211,10 @@ El sistema normaliza las descripciones de acopio y pedido antes de comparar:
 - ordena componentes para tolerar descripciones equivalentes con distinta ubicacion;
 - unifica sinonimos y errores habituales como `extructural`, `bastidos`, `BP`, `TEM`, `Lam 3+3`;
 - extrae procesos canonicos como vidrio exterior, vidrio interior, camara, pulido, templado, pegado y opacificados;
+- registra cambios de material como eventos de `cambio_composicion`: ayudan a asignar el item correcto, pero no convierten materiales en equivalencias globales;
 - calcula un score de similitud por composicion y procesos.
 
-Al imputar un pedido SPF, cada item del pedido se asigna al item de acopio mas compatible por composicion. Si la composicion es equivalente, se imputa sin advertencia. Si hay diferencias de procesos o no se encuentra una composicion compatible, la imputacion queda marcada con advertencia para control comercial.
+Al imputar un pedido SPF, cada item del pedido se asigna al item de acopio mas compatible por composicion. Si la composicion es equivalente, se imputa sin advertencia. Si hay diferencias de procesos, cambios de material o no se encuentra una composicion compatible, la imputacion queda marcada con advertencia para control comercial.
 
 Cada imputacion persiste un snapshot de los metadatos de composicion del momento del alta:
 

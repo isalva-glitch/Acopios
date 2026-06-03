@@ -86,6 +86,10 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bopacado\s+perimetral\b",
         r"\bopac(?:if)?\s+perimetral\b",
         r"\bserigraf(?:ia|iado)\s+perimetral\b",
+        r"\bopacificado\b.*\bbandas?\b",
+        r"\bopacificado\b.*\bparcial(?:es)?\b",
+        r"\bopacado\b.*\bbandas?\b",
+        r"\bopacado\b.*\bparcial(?:es)?\b",
     ),
     "opacificado_total": (
         r"\bopacificado\s+total\b",

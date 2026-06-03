@@ -26,6 +26,7 @@ ESTADOS_PEDIDO = {
 }
 
 
+
 def _to_decimal(value) -> Decimal:
     if value is None:
         return Decimal("0")
@@ -601,6 +602,9 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         "nro_pedido": pedido.nro_pedido or str(pedido.id),
         "nrooc": pedido.nrooc,
         "v_presupuesto_id": v_presupuesto_id,
+        "estado_id": pedido.estado_id,
+        "estado": ESTADOS_PEDIDO.get(pedido.estado_id, f"Estado {pedido.estado_id}"),
+
         "empresa": empresa,
         "procesos": summarize_spf_items_processes(db, items),
         "items": items_out,

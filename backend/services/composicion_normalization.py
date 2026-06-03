@@ -48,7 +48,44 @@ _STOPWORDS = {
     "cliente",
     "item",
     "inc",
+    "sin",
+    "brillo",
+    "recto",
+    "banda",
+    "bandas",
+    "parcial",
+    "parciales",
+    "opacificado",
+    "opacado",
+    "perimetral",
 }
+
+_MATERIAL_COMPONENTS = {
+    "vidrio_eclipse",
+    "vidrio_incoloro",
+    "vidrio_float",
+    "laminado_3_3",
+    "templado_6",
+}
+
+_COMPONENT_LABELS = {
+    "vidrio_eclipse": "Eclipse Advantage Grey",
+    "vidrio_incoloro": "Incoloro",
+    "vidrio_float": "Float",
+    "laminado_3_3": "Laminado 3+3",
+    "templado_6": "Templado 6",
+}
+
+_OPACIFICADO_PARCIAL_PATTERNS = (
+    r"\bopacificado\s+perimetral\b",
+    r"\bopacado\s+perimetral\b",
+    r"\bopacificado\b.*\bbandas?\b",
+    r"\bopacificado\b.*\bparcial(?:es)?\b",
+    r"\bopacado\b.*\bbandas?\b",
+    r"\bopacado\b.*\bparcial(?:es)?\b",
+    r"\bopac(?:if)?\s+perimetral\b",
+    r"\bserigraf(?:ia|iado)\s+perimetral\b",
+)
 
 
 @dataclass(frozen=True)
@@ -92,11 +129,31 @@ def _canonical_text(texts: Iterable[object]) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _is_noise_token(token: str) -> bool:
+    if token == "pdf" or token in _STOPWORDS:
+        return True
+
+    # Panel/zone labels from presupuestos and pedidos are not composition.
+    # Examples seen in SPF/PDF data: PA13, PFA2, PF07, CW3B, CE3B, VF7, SP1.
+    if re.match(r"^[a-z]{1,4}\d+[a-z]?$", token):
+        return True
+
+    # Edge/profile codes like 4A10 should not drive material matching either.
+    if re.match(r"^\d+[a-z]\d+$", token):
+        return True
+
+    return False
+
+
 def _extract_components(text: str, procesos: dict[str, bool]) -> tuple[str, ...]:
     components: set[str] = set()
     for component, patterns in _COMPONENT_PATTERNS:
         if any(re.search(pattern, text) for pattern in patterns):
             components.add(component)
+
+    if any(re.search(pattern, text) for pattern in _OPACIFICADO_PARCIAL_PATTERNS):
+        components.discard("opacificado_total")
+        components.add("opacificado_perimetral")
 
     for field, active in procesos.items():
         if active:
@@ -104,13 +161,38 @@ def _extract_components(text: str, procesos: dict[str, bool]) -> tuple[str, ...]
 
     # Keep meaningful residual terms so unknown compositions still get a stable key.
     for token in re.findall(r"\b[a-z0-9]{3,}\b", text):
-        if token not in _STOPWORDS:
-            # Skip file extensions, panel identifier codes, and pure numeric identifiers
-            if token == "pdf" or re.match(r"^p[a-z]*\d+$", token) or re.match(r"^\d+$", token):
-                continue
-            components.add(f"term:{token}")
+        if _is_noise_token(token) or re.match(r"^\d+$", token):
+            continue
+        components.add(f"term:{token}")
 
     return tuple(sorted(components))
+
+
+def _material_components(components: Sequence[str]) -> set[str]:
+    return {component for component in components if component in _MATERIAL_COMPONENTS}
+
+
+def _format_components(components: Sequence[str]) -> str:
+    if not components:
+        return "sin componente canonico"
+    return ", ".join(_COMPONENT_LABELS.get(component, component) for component in components)
+
+
+def _material_change_warning(
+    acopio_comp: ComposicionNormalizada,
+    pedido_comp: ComposicionNormalizada,
+) -> str | None:
+    acopio_material = _material_components(acopio_comp.componentes)
+    pedido_material = _material_components(pedido_comp.componentes)
+    removed = tuple(sorted(acopio_material - pedido_material))
+    added = tuple(sorted(pedido_material - acopio_material))
+    if not removed and not added:
+        return None
+
+    return (
+        "Evento de cambio de material detectado: contratado "
+        f"{_format_components(removed)}; pedido {_format_components(added)}."
+    )
 
 
 def normalizar_composicion(texts: Iterable[object]) -> ComposicionNormalizada:
@@ -214,20 +296,33 @@ def encontrar_item_por_composicion(items: Iterable[object], pedido_comp: Composi
     best_item = None
     best_score = Decimal("-1")
     best_diffs: tuple[str, ...] = ()
-    exact = False
+    best_comp: ComposicionNormalizada | None = None
+    best_exact = False
+    best_key: tuple[int, int, int, Decimal] | None = None
 
     for item in items:
         acopio_comp = normalizar_item_acopio(item)
         score, diffs = comparar_composiciones(acopio_comp, pedido_comp)
+        exact = False
         if acopio_comp.firma == pedido_comp.firma:
             score = Decimal("1.0000")
             diffs = ()
             exact = True
 
-        if score > best_score:
+        candidate_key = (
+            1 if exact else 0,
+            1 if not diffs and score >= Decimal("0.6500") else 0,
+            -len(diffs),
+            score,
+        )
+
+        if best_key is None or candidate_key > best_key:
             best_item = item
             best_score = score
             best_diffs = diffs
+            best_comp = acopio_comp
+            best_exact = exact
+            best_key = candidate_key
 
     if best_item is None or best_score < Decimal("0.4500"):
         return ComposicionMatch(
@@ -238,7 +333,21 @@ def encontrar_item_por_composicion(items: Iterable[object], pedido_comp: Composi
             diferencias_procesos=(),
         )
 
-    if exact or (best_score >= Decimal("0.9000") and not best_diffs):
+    material_warning = (
+        _material_change_warning(best_comp, pedido_comp)
+        if best_comp is not None else None
+    )
+
+    if material_warning and not best_diffs and best_score >= Decimal("0.6500"):
+        return ComposicionMatch(
+            item=best_item,
+            estado=MATCH_CHANGED,
+            score=best_score,
+            advertencia=material_warning,
+            diferencias_procesos=(),
+        )
+
+    if best_exact or (best_score >= Decimal("0.9000") and not best_diffs):
         return ComposicionMatch(
             item=best_item,
             estado=MATCH_EXACT,
@@ -254,6 +363,18 @@ def encontrar_item_por_composicion(items: Iterable[object], pedido_comp: Composi
             score=best_score,
             advertencia=None,
             diferencias_procesos=(),
+        )
+
+    if material_warning and best_score >= Decimal("0.6500"):
+        warning = material_warning
+        if best_diffs:
+            warning += f" Diferencias de procesos: {', '.join(best_diffs)}."
+        return ComposicionMatch(
+            item=best_item,
+            estado=MATCH_CHANGED,
+            score=best_score,
+            advertencia=warning,
+            diferencias_procesos=best_diffs,
         )
 
     if best_diffs:

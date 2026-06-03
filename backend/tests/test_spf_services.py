@@ -58,3 +58,6 @@ def test_get_presupuesto_details_aggregates():
     assert "items" in result
     assert result["items"][0]["cantidad"] == 3  # medida1 (2) + medida2 (1)
     assert len(result["items"][0]["panos"]) == 2
+
+
+
