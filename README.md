@@ -228,6 +228,13 @@ Cada imputacion persiste un snapshot de los metadatos de composicion del momento
 
 Migration: `20260518_1100_2b6d8f4c1a90_add_imputacion_composicion_fields`
 
+### Desviación de Proporciones en Imputaciones
+
+Cuando un acopio se carga (vía PDF o sincronización), el saldo total de m² se calcula respecto a la cantidad de paños presupuestados, generando una proporción promedio (ej. 1.24 m² por paño). 
+Al imputar un pedido de SPF, la aplicación descuenta directamente el consumo físico real que figura en las medidas del pedido. 
+
+Si los pedidos fabricados incluyen paños con superficies **superiores al promedio original** del acopio (ej. paños de 1.80 m²), el consumo de m² será mucho más acelerado que el consumo de paños. Esto puede resultar en un saldo de m² negativo (excedente) aun cuando quede saldo positivo en la cantidad de paños. Este comportamiento no es un error de sumatoria ni de matching, sino el reflejo fiel de un mayor consumo de superficie respecto a la proyección comercial original.
+
 ## UX: Panel de Totales y Consumos Aplicados
 
 El detalle del acopio combina **Totales y Saldos** con un resumen lateral de **Consumos Aplicados**:
