@@ -5,7 +5,11 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from models import Acopio
-from services.proceso_inference import PROCESS_FIELDS, PROCESS_UNITS
+from services.proceso_inference import (
+    PROCESS_FIELDS,
+    PROCESS_UNITS,
+    has_structural_offset_camera_text,
+)
 
 
 MONEY_QUANT = Decimal("0.01")
@@ -72,6 +76,25 @@ def _build_acopio_process_totals(acopio: Acopio) -> tuple[dict, dict]:
     return totals, detail
 
 
+def _snapshot_processes_for_compensacion(imputacion) -> list:
+    procesos = list(imputacion.procesos or [])
+    if not procesos:
+        return procesos
+
+    has_offset_snapshot = any(
+        proceso.proceso == "camara_offset"
+        for proceso in procesos
+    )
+    if has_offset_snapshot and has_structural_offset_camera_text(imputacion.pedido_item_descripcion):
+        return [
+            proceso
+            for proceso in procesos
+            if proceso.proceso != "camara_estructural"
+        ]
+
+    return procesos
+
+
 def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[dict, dict]:
     """
     Calculate process quantities consumed by each imputacion using proration.
@@ -102,8 +125,9 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
         pedido_id = imputacion.pedido_id
         pedido_numero = imputacion.pedido.numero if imputacion.pedido else str(pedido_id)
 
-        if imputacion.procesos:
-            for proceso in imputacion.procesos:
+        procesos_snapshot = _snapshot_processes_for_compensacion(imputacion)
+        if procesos_snapshot:
+            for proceso in procesos_snapshot:
                 field = proceso.proceso
                 if field not in PROCESS_FIELDS:
                     warnings.append(f"Proceso desconocido en imputacion {imputacion.id}: {field}")

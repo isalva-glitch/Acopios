@@ -248,3 +248,26 @@ Presupuesto consolidado:
     assert contacto == "FRANCA DAULON"
     assert cotizado == "Abel Paladini"
     assert fecha == "21/04/26"
+
+
+def test_parse_header_block_recovers_compact_empresa_obra_line():
+    text = """
+Presupuesto NÂº:
+#000207644
+Empresa Contacto Estado Cotizado por Fecha de aprobaciÃ³n
+EDILIZIA / AQUILONIA DAVID BERON Ejecutado Admin User 05/08/25
+Presupuesto consolidado:
+"""
+
+    empresa, obra, contacto, cotizado, fecha = _parse_header_block_from_text(
+        text,
+        contacto="DAVID BERON",
+        cotizado_por="Admin User",
+        estado="Ejecutado",
+    )
+
+    assert empresa == "EDILIZIA"
+    assert obra == "AQUILONIA"
+    assert contacto == "DAVID BERON"
+    assert cotizado == "Admin User"
+    assert fecha == "05/08/25"

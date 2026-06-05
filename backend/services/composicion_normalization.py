@@ -6,6 +6,7 @@ from typing import Iterable, Sequence
 
 from services.proceso_inference import (
     PROCESS_FIELDS,
+    has_structural_offset_camera_text,
     infer_item_processes_from_texts,
     normalize_process_text,
 )
@@ -22,7 +23,7 @@ _COMPONENT_PATTERNS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("vidrio_float", (r"\bfloat\b",)),
     ("laminado_3_3", (r"\blam(?:inado)?\s*3\s*3\b", r"\b3\s*3\b")),
     ("camara_12", (r"\bcamara\s*12\b",)),
-    ("camara_12_estructural", (r"\bcamara\s*12\s*(?:mm\s*)?estructural\b",)),
+    ("camara_12_estructural", (r"\bcamara\s*12\s*(?:mm\s*)?estructural(?!\s*offset)\b",)),
     ("camara_12_offset", (r"\bcamara\s*12\s*(?:mm\s*)?(?:estructural\s*)?offset\b",)),
     ("templado_6", (r"\btemp(?:lado)?(?:\s+(?:float|de))?\s*6\b", r"\btemplado\s+float\s+6\b")),
     ("borde_pulido", (r"\bborde\s+pulido\b", r"\bbordes\s+pulidos\b", r"\bbp\b", r"\bbpsb\b")),
@@ -154,6 +155,9 @@ def _extract_components(text: str, procesos: dict[str, bool]) -> tuple[str, ...]
     if any(re.search(pattern, text) for pattern in _OPACIFICADO_PARCIAL_PATTERNS):
         components.discard("opacificado_total")
         components.add("opacificado_perimetral")
+
+    if has_structural_offset_camera_text(text):
+        components.discard("camara_12_estructural")
 
     for field, active in procesos.items():
         if active:

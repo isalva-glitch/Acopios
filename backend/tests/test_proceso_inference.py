@@ -63,6 +63,16 @@ def test_explicit_camera_normal_can_coexist_with_other_camera_processes():
     assert result["camara_offset"] is True
 
 
+def test_camara_estructural_offset_counts_only_as_offset():
+    result = infer_item_processes_from_texts([
+        "DVH + Camara 12 mm. Estructural Offset + Laminado 3+3",
+    ])
+
+    assert result["camara_estructural"] is False
+    assert result["camara_offset"] is True
+    assert result["camara_normal"] is False
+
+
 def test_generic_camera_means_normal_camera():
     result = infer_item_processes_from_texts([
         "DVH con Camara",

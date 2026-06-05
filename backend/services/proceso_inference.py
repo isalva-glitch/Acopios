@@ -48,10 +48,10 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\blaminado\s+3\s+3\b",
     ),
     "camara_estructural": (
-        r"\bcamara\s+estructural\b",
-        r"\bcamara\s+extructural\b",
-        r"\bcamara\s+\d+\s+(?:mm\s+)?estructural\b",
-        r"\bcamara\s+\d+\s+(?:mm\s+)?extructural\b",
+        r"\bcamara\s+estructural(?!\s+offset)\b",
+        r"\bcamara\s+extructural(?!\s+offset)\b",
+        r"\bcamara\s+\d+\s+(?:mm\s+)?estructural(?!\s+offset)\b",
+        r"\bcamara\s+\d+\s+(?:mm\s+)?extructural(?!\s+offset)\b",
         r"\bsellado\s+estructural\b",
         r"\bsellado\s+extructural\b",
         r"\bsilicona\s+estructural\b",
@@ -118,6 +118,11 @@ _CAMARA_NORMAL_GENERIC_PATTERNS = (
     *_DVH_PATTERNS,
 )
 
+_STRUCTURAL_OFFSET_CAMERA_PATTERNS = (
+    r"\bcamara\s+(?:\d+\s+(?:mm\s+)?)?estructural\s+offset\b",
+    r"\bcamara\s+(?:\d+\s+(?:mm\s+)?)?extructural\s+offset\b",
+)
+
 
 def normalize_process_text(value: object) -> str:
     if value is None:
@@ -129,6 +134,15 @@ def normalize_process_text(value: object) -> str:
     text = text.lower()
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def has_structural_offset_camera_text(value: object) -> bool:
+    """Return true when a camera is described as the Offset variant."""
+    normalized = normalize_process_text(value)
+    return any(
+        re.search(pattern, normalized)
+        for pattern in _STRUCTURAL_OFFSET_CAMERA_PATTERNS
+    )
 
 
 def infer_item_processes_from_texts(texts: Iterable[object]) -> dict:

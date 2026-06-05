@@ -64,7 +64,16 @@ def _norm_header(raw: Any) -> str:
     return "".join(ch for ch in text if not unicodedata.combining(ch))
 
 
-ESTADOS_PRESUPUESTO = ["Parcial", "Produccion", "Producción", "Enviado", "Anulado", "Aprobado", "Pendiente"]
+ESTADOS_PRESUPUESTO = [
+    "Parcial",
+    "Produccion",
+    "Producción",
+    "Enviado",
+    "Anulado",
+    "Aprobado",
+    "Pendiente",
+    "Ejecutado",
+]
 
 
 def _split_empresa_obra(raw_empresa: str) -> tuple[str, str]:
@@ -84,6 +93,51 @@ def _strip_trailing_token(text: str, token: str) -> str:
     return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
 
 
+def _remove_header_value(text: str, value: str) -> str:
+    text = _clean_text(text)
+    value = _clean_text(value)
+    if not text or not value:
+        return text
+    return _clean_text(
+        re.sub(rf"\b{re.escape(value)}\b", " ", text, count=1, flags=re.IGNORECASE)
+    )
+
+
+def _parse_single_line_header_values(
+    line: str,
+    contacto: str,
+    cotizado_por: str,
+    estado: str,
+    fecha_aprobacion: Optional[str],
+) -> tuple[str, str, str, str, Optional[str]]:
+    """Parse compact header rows like: Empresa / Obra Contacto Estado Cotizador Fecha."""
+    line = _clean_text(line)
+    if not line:
+        return "", "", _clean_text(contacto), _clean_text(cotizado_por), fecha_aprobacion
+
+    date_m = re.search(r"\b\d{2}/\d{2}/\d{2,4}\b", line)
+    if date_m and not fecha_aprobacion:
+        fecha_aprobacion = date_m.group(0)
+    if date_m:
+        line = _remove_header_value(line, date_m.group(0))
+
+    estado_found = estado or next(
+        (
+            possible
+            for possible in ESTADOS_PRESUPUESTO
+            if re.search(rf"\b{re.escape(possible)}\b", line, re.IGNORECASE)
+        ),
+        "",
+    )
+
+    line = _remove_header_value(line, cotizado_por)
+    line = _remove_header_value(line, estado_found)
+    line = _remove_header_value(line, contacto)
+
+    empresa, obra = _split_empresa_obra(line)
+    return empresa, obra, _clean_text(contacto), _clean_text(cotizado_por), fecha_aprobacion
+
+
 def _parse_header_block_from_text(
     text: str,
     contacto: str = "",
@@ -92,17 +146,30 @@ def _parse_header_block_from_text(
     fecha_aprobacion: Optional[str] = None,
 ) -> tuple[str, str, str, str, Optional[str]]:
     """Recover Empresa/Obra when pdfplumber drops the Empresa column."""
-    block_m = re.search(
+    block_m = None
+    for pattern in (
+        r"Empresa\s+Contacto\s+Estado\s+Cotizado\s+por\s+Fecha\s+de\s+aprobaci\S*\s*(.*?)\s*Presupuesto consolidado:",
+        r"Cotizado\s+Fecha\s+de\s+Empresa\s+Contacto\s+Estado\s+por\s+aprobaci\S*\s*(.*?)\s*Presupuesto consolidado:",
         r"por\s+aprobaci\S*\s*(.*?)\s*Presupuesto consolidado:",
-        text,
-        re.IGNORECASE | re.DOTALL,
-    )
+    ):
+        block_m = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
+        if block_m:
+            break
     if not block_m:
         return "", "", contacto, cotizado_por, fecha_aprobacion
 
     lines = [_clean_text(line) for line in block_m.group(1).splitlines() if _clean_text(line)]
     if not lines:
         return "", "", contacto, cotizado_por, fecha_aprobacion
+
+    if len(lines) == 1:
+        return _parse_single_line_header_values(
+            lines[0],
+            contacto,
+            cotizado_por,
+            estado,
+            fecha_aprobacion,
+        )
 
     state_idx = None
     estado_found = estado

@@ -196,6 +196,7 @@ El detalle del acopio incluye una tabla de compensacion por composicion. El calc
 - Las diferencias negativas suman al total negativo.
 - El saldo final es `total_positivo + total_negativo`.
 - Las imputaciones nuevas guardan un snapshot de cantidades por composicion para mantener trazabilidad. Si una imputacion anterior no tiene snapshot, el sistema intenta reconstruir el desglose desde SPF.
+- Si un snapshot historico de pedido marca a la vez `camara_estructural` y `camara_offset` para una descripcion `Camara ... Estructural Offset`, el resumen lo trata como Camara Offset y no suma esos mismos ml a Camara Estructural.
 - Los importes se muestran con formato argentino: `$ 1.234.567,89`.
 - En la ventana de precios de referencia, los importes se editan aceptando `.` como separador decimal (ej. `1234.56`) y se muestran en formato argentino al salir del campo.
 - En el detalle del acopio, el panel de resumen de compensacion queda al final de la pagina y contiene el acceso a precios de referencia en su encabezado.
@@ -277,6 +278,7 @@ Reglas interpretativas principales:
 - `DVH`, `doble vidriado` o `doble vidrio` marcan Vidrio Exterior, Vidrio Interior y Cámara Normal.
 - `Cámara` sin especificar Normal, Estructural u Offset se interpreta como Cámara Normal.
 - `Cámara Normal` explícita puede convivir con Cámara Estructural u Offset si también aparecen en el detalle.
+- `Cámara ... Estructural Offset` se interpreta como Cámara Offset. No se marca también como Cámara Estructural, porque es una variante Offset y no dos procesos de cámara acumulables.
 - `Templado`, `Templada`, `Templados`, `Templadas` o `Temp` marcan Fasón Templado Exterior.
 - El signo `+` separa partes del detalle, pero no crea procesos por sí mismo: solo se marcan procesos con palabras clave conocidas.
 - Medidas o composiciones como `4+4` no marcan procesos si no incluyen una palabra clave de proceso.
@@ -306,6 +308,8 @@ El sistema implementa un motor de extracción de segunda generación que combina
 1. **Detección de Tablas**: Identifica la estructura visual del presupuesto.
 2. **Parsing de Texto**: Recupera líneas que la detección de tablas puede omitir en documentos extensos o con formato irregular.
 3. **Deduplicación Inteligente**: Utiliza algoritmos de conteo para asegurar que no se dupliquen filas ni se pierdan ítems, manteniendo la integridad de los totales.
+
+La cabecera del PDF se recupera desde tabla o desde texto compacto. Cuando la tabla omite la columna Empresa, el parser interpreta filas como `Empresa / Obra Contacto Estado Cotizado por Fecha` y separa cliente, obra y contacto sin confundir el contacto con el cliente. El estado `Ejecutado` también se reconoce como delimitador de cabecera.
 
 ## Licencia
 

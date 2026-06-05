@@ -68,6 +68,17 @@ def test_matching_no_depende_del_numero_de_item():
     assert match.estado in {MATCH_EQUIVALENT, "exacta"}
 
 
+def test_camara_estructural_offset_no_agrega_componente_estructural():
+    composicion = normalizar_composicion([
+        "DVH Eclipse Advantage Grey + Camara 12 mm. Estructural Offset + Laminado 3+3"
+    ])
+
+    assert "camara_12_offset" in composicion.componentes
+    assert "camara_12_estructural" not in composicion.componentes
+    assert composicion.procesos["camara_offset"] is True
+    assert composicion.procesos["camara_estructural"] is False
+
+
 def test_filtrar_codigos_panos_y_numeros_puros():
     # Verify that panel marks (pa13, pv2, pfa10), "pdf" extension, and order IDs (23095) are filtered out,
     # resulting in a Jaccard score of 1.0 (exact match) for otherwise identical glass.
