@@ -47,9 +47,11 @@ class Acopio(BaseModel):
     
     # Foreign keys
     obra_id = Column(Integer, ForeignKey("obras.id"), nullable=True)
+    paquete_id = Column(Integer, ForeignKey("acopio_paquetes.id"), nullable=True, index=True)
     
     # Relationships
     obra = relationship("Obra", back_populates="acopios")
+    paquete = relationship("AcopioPaquete", back_populates="acopios")
     presupuestos = relationship("Presupuesto", back_populates="acopio", cascade="all, delete-orphan")
     items = relationship("AcopioItem", back_populates="acopio", cascade="all, delete-orphan")
     imputaciones = relationship("Imputacion", back_populates="acopio", cascade="all, delete-orphan")

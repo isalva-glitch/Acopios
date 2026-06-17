@@ -2,6 +2,7 @@
 from models.base import BaseModel
 from models.cliente import Cliente
 from models.obra import Obra, EstadoObra
+from models.acopio_paquete import AcopioPaquete
 from models.acopio import Acopio, EstadoAcopio
 from models.presupuesto import Presupuesto
 from models.acopio_item import AcopioItem
@@ -23,6 +24,7 @@ __all__ = [
     "Cliente",
     "Obra",
     "EstadoObra",
+    "AcopioPaquete",
     "Acopio",
     "EstadoAcopio",
     "Presupuesto",

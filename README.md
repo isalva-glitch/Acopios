@@ -33,6 +33,7 @@ Sistema de gestión de acopios con procesamiento de PDFs asistido por IA para co
 - ✅ Corrección de visibilidad de botones de acción en lista de acopios
 - ✅ Contabilidad mínima (anticipos, facturas, notas de crédito)
 - ✅ Vista Informes con KPIs, filtros avanzados, gráficos por obra/estado/tiempo, tabla ejecutiva y exportación CSV
+- ✅ Acopio x Paquete de Obras: agrupación de varios presupuestos SPF en un paquete consolidado, creando un acopio operativo individual por presupuesto
 - ✅ Validación automática con warnings
 
 ## Setup Rápido
@@ -95,6 +96,14 @@ Acopios/
 - `PATCH /acopios/{id}` - Actualizar campos manuales obligatorios del acopio, incluyendo `fecha_vencimiento`
 - `GET /acopios/{id}/resumen-compensacion` - Resumen de compensacion de composiciones
 
+### Acopio x Paquete de Obras
+- `POST /acopio-paquetes/upload-pdf` - Subir PDF de presupuesto para usarlo como fuente de un acopio hijo del paquete
+- `POST /acopio-paquetes/preview` - Previsualizar presupuestos SPF antes de crear el paquete
+- `POST /acopio-paquetes` - Crear paquete y acopios hijos
+- `GET /acopio-paquetes` - Listar paquetes con totales consolidados
+- `GET /acopio-paquetes/{id}` - Detalle de paquete con acopios hijos
+- `PATCH /acopio-paquetes/{id}` - Actualizar datos generales del paquete sin modificar acopios hijos
+
 ### Pedidos
 - `POST /pedidos/upload-pdf` - Subir PDF de pedido
 - `POST /pedidos/confirm` - Confirmar y crear pedido
@@ -121,6 +130,20 @@ La ruta `/reportes` se presenta como **Informes**, un tablero operativo con grá
 - Grafica barras por obra, distribución por estado y línea temporal mensual del importe filtrado.
 - Calcula una lectura rápida de concentración, promedio por registro, filtros aplicados y estado del tablero.
 - Mantiene una tabla ejecutiva unificada para inspección operativa.
+
+## UX: Acopio x Paquete de Obras
+
+La ruta `/paquetes` lista paquetes de obras y consolida los totales de sus acopios hijos. La ruta `/paquetes/nuevo` permite ingresar varios presupuestos SPF, cargar PDFs de presupuestos que no existan en SPF, previsualizar las fuentes y crear un paquete con un acopio individual por presupuesto. La ruta `/paquetes/:id` muestra el resumen general y permite entrar al detalle normal de cada acopio hijo.
+
+- El paquete es una entidad agrupadora en `acopio_paquetes`.
+- Cada presupuesto SPF genera un `Acopio` normal, con items, saldos, imputaciones operativas, pedidos y precios de referencia existentes.
+- Cada PDF cargado en el alta de paquete reutiliza el extractor de acopios tradicionales y genera un `Acopio` normal con `origen_datos = pdf_upload`.
+- `acopios.paquete_id` es nullable: los acopios tradicionales siguen funcionando sin paquete.
+- Los totales del paquete se calculan a partir de los acopios hijos.
+- El preview valida presupuestos repetidos, inexistentes, duplicados entre SPF/PDF o ya cargados como acopio.
+- Si el presupuesto madre no existe en SPF, el paquete puede crearse inicialmente solo desde el PDF.
+- En esta etapa no se implementan recibos ni imputaciones financieras.
+- Nota tecnica: el futuro modulo de recibos debe imputar contra `acopio_id`, no contra `paquete_id`; el paquete solo debe mostrar la consolidacion de recibos imputados a sus acopios hijos.
 
 ## UX: Fecha de Vencimiento del Acopio
 
@@ -186,6 +209,11 @@ npm run dev
 7. Los procesos asociados a precios de referencia se interpretan solo durante el alta del acopio
 8. Una vez creado el acopio, abrirlo o modificarlo no vuelve a reinterpretar procesos; los checks quedan bajo control manual
 9. **Compensacion**: Se calculan las diferencias entre el total acopiado y el total imputado en pedidos para cada composicion. Las diferencias positivas y negativas se valorizan con precios de referencia y se totalizan por separado para obtener el saldo final.
+10. Un paquete de obras agrupa uno o varios acopios, pero no reemplaza al acopio como unidad operativa
+11. Un acopio puede pertenecer a cero o un paquete
+12. Los acopios hijos conservan estado operativo propio y se gestionan desde el detalle normal de acopio
+13. El paquete tiene estado propio y datos generales editables
+14. Los recibos de pago futuros deben imputarse contra acopios individuales para servir tanto a acopios tradicionales como a paquetes
 
 ## Resumen de Compensacion
 

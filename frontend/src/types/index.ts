@@ -20,6 +20,52 @@ export interface Acopio {
     obra?: string | null;
 }
 
+export interface AcopioPaquete {
+    id: number;
+    numero?: string | null;
+    nombre: string;
+    cliente: string;
+    fecha_alta: string;
+    estado: string;
+    observaciones?: string | null;
+    cantidad_acopios: number;
+    total_pesos: number;
+    total_m2: number;
+    total_ml: number;
+    total_unidades: number;
+}
+
+export interface AcopioPaqueteAcopio {
+    id: number;
+    numero_acopio?: string | null;
+    presupuesto?: string | null;
+    obra?: string | null;
+    cliente?: string | null;
+    estado: string;
+    total_pesos: number;
+    saldo_pesos: number;
+    total_m2: number;
+    total_ml: number;
+    total_unidades: number;
+}
+
+export interface AcopioPaqueteDetalle extends AcopioPaquete {
+    acopios: AcopioPaqueteAcopio[];
+}
+
+export interface AcopioPaquetePreviewItem {
+    presupuesto: string;
+    cliente?: string | null;
+    obra?: string | null;
+    importe: number;
+    m2: number;
+    ml: number;
+    unidades: number;
+    estado_validacion: string;
+    observaciones?: string | null;
+    valido: boolean;
+}
+
 export interface PrecioReferencia {
     id?: number;
     acopio_id: number;

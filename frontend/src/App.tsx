@@ -3,6 +3,9 @@ import { createBrowserRouter, RouterProvider, Outlet, Link, NavLink, useLocation
 import AltaAcopio from './pages/AltaAcopio'
 import ListaAcopios from './pages/ListaAcopios'
 import DetalleAcopio from './pages/DetalleAcopio'
+import ListaAcopioPaquetes from './pages/ListaAcopioPaquetes'
+import AltaAcopioPaquete from './pages/AltaAcopioPaquete'
+import DetalleAcopioPaquete from './pages/DetalleAcopioPaquete'
 import ErrorBoundary from './components/ErrorBoundary'
 import './App.css'
 
@@ -13,11 +16,14 @@ function AppLayout() {
     const isHome = location.pathname === '/'
     const isListaAcopios = location.pathname === '/acopios'
     const isDetalleAcopio = /^\/acopios\/[^/]+$/.test(location.pathname) && location.pathname !== '/acopios/alta'
+    const isPaquetes = /^\/paquetes(\/.*)?$/.test(location.pathname)
+    const isDetallePaquete = /^\/paquetes\/[^/]+$/.test(location.pathname) && location.pathname !== '/paquetes/nuevo'
     const isInformes = location.pathname === '/reportes'
     const contentContainerClassName = [
         'container',
         isDetalleAcopio ? 'container-acopio' : '',
         isListaAcopios ? 'container-acopios-listado' : '',
+        isPaquetes ? 'container-acopios-listado' : '',
         isInformes ? 'container-informes' : '',
     ].filter(Boolean).join(' ')
 
@@ -46,6 +52,21 @@ function AppLayout() {
                             <li>
                                 <NavLink to="/acopios/alta" end>
                                     Nuevo Acopio
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink
+                                    to="/paquetes"
+                                    className={({ isActive }) => {
+                                        return isActive || isDetallePaquete ? 'active' : ''
+                                    }}
+                                >
+                                    Paquetes de Obras
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink to="/paquetes/nuevo" end>
+                                    Nuevo Paquete
                                 </NavLink>
                             </li>
                             <li>
@@ -82,6 +103,10 @@ function Home() {
                     <h3>Ver Acopios</h3>
                     <p>Listado de saldos activos</p>
                 </Link>
+                <Link to="/paquetes" className="card">
+                    <h3>Paquetes de Obras</h3>
+                    <p>Consolidado por presupuestos</p>
+                </Link>
                 <Link to="/reportes" className="card">
                     <h3>Informes</h3>
                     <p>Panel ejecutivo y consultas</p>
@@ -100,6 +125,9 @@ const router = createBrowserRouter([
             { path: "acopios", element: <ListaAcopios /> },
             { path: "acopios/alta", element: <AltaAcopio /> },
             { path: "acopios/:id", element: <DetalleAcopio /> },
+            { path: "paquetes", element: <ListaAcopioPaquetes /> },
+            { path: "paquetes/nuevo", element: <AltaAcopioPaquete /> },
+            { path: "paquetes/:id", element: <DetalleAcopioPaquete /> },
             {
                 path: "reportes",
                 element: (

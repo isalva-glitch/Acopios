@@ -1,5 +1,5 @@
 """Service for unified Acopio creation from any source."""
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from datetime import date, datetime
 from decimal import Decimal
@@ -72,6 +72,7 @@ class AcopioCreationService:
         return NormalizedAcopioData(
             numero=spf_details.get("v_presupuesto_id", ""),
             cliente_nombre=spf_details.get("cliente_nombre", "Desconocido"),
+            obra_nombre=spf_details.get("obra_nombre"),
             total_m2=Decimal(str(spf_details.get("total_m2", 0))),
             total_ml=Decimal(str(spf_details.get("total_ml", 0))),
             total_pesos=Decimal(str(spf_details.get("total_pesos", 0))),
@@ -164,7 +165,14 @@ class AcopioCreationService:
         )
 
     @staticmethod
-    def persist_from_normalized_data(db: Session, data: NormalizedAcopioData) -> Acopio:
+    def persist_from_normalized_data(
+        db: Session,
+        data: NormalizedAcopioData,
+        *,
+        commit: bool = True,
+        fecha_alta: Optional[date] = None,
+        paquete_id: Optional[int] = None,
+    ) -> Acopio:
         """Unified persistence logic using NormalizedAcopioData DTO."""
         
         # 1. Get or create Cliente
@@ -179,7 +187,7 @@ class AcopioCreationService:
         # 3. Create Acopio
         acopio = Acopio(
             numero=data.numero,
-            fecha_alta=date.today(),
+            fecha_alta=fecha_alta or date.today(),
             estado=EstadoAcopio.ACTIVO,
             total_m2=data.total_m2,
             total_ml=data.total_ml,
@@ -192,7 +200,8 @@ class AcopioCreationService:
             origen_datos=data.origen_datos,
             v_presupuesto_id=data.v_presupuesto_id,
             cliente_id=data.cliente_id_spf,
-            obra_id=obra_id
+            obra_id=obra_id,
+            paquete_id=paquete_id,
         )
         db.add(acopio)
         db.flush()
@@ -265,8 +274,12 @@ class AcopioCreationService:
                 )
                 db.add(adicional)
                 
-        db.commit()
-        db.refresh(acopio)
+        if commit:
+            db.commit()
+            db.refresh(acopio)
+        else:
+            db.flush()
+
         return acopio
 
     @classmethod

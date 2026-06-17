@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 # Import routers
-from routers import acopios, pedidos, remitos, imputaciones, reportes, spf_integration
+from routers import acopios, acopio_paquetes, pedidos, remitos, imputaciones, reportes, spf_integration
 
 # Configure logging
 logging.basicConfig(
@@ -34,6 +34,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(acopios.router, prefix="/acopios", tags=["Acopios"])
+app.include_router(acopio_paquetes.router, prefix="/acopio-paquetes", tags=["Acopio Paquetes"])
 app.include_router(pedidos.router, prefix="/pedidos", tags=["Pedidos"])
 app.include_router(remitos.router, prefix="/remitos", tags=["Remitos"])
 app.include_router(imputaciones.router, prefix="/imputaciones", tags=["Imputaciones"])
