@@ -37,6 +37,36 @@ export interface PrecioReferencia {
     updated_at?: string;
 }
 
+export type UnidadPrecioReferencia = 'm2' | 'ml' | 'unidad';
+export type OrigenPrecioReferencia = 'autodetectado' | 'manual' | 'migrado';
+export type EstadoPreciosReferencia = 'completo' | 'incompleto' | 'sin_conceptos' | 'revisar';
+
+export interface ConceptoPrecioReferencia {
+    concepto: string;
+    unidad: UnidadPrecioReferencia;
+    habilitado: boolean;
+    precio_base: number | null;
+    precio_actual: number | null;
+    origen: OrigenPrecioReferencia;
+}
+
+export interface ItemPreciosReferencia {
+    item_id: number;
+    numero_item: string;
+    descripcion: string;
+    cantidad: number;
+    total_m2: number;
+    total_ml: number;
+    total_pesos: number;
+    conceptos: ConceptoPrecioReferencia[];
+    estado_precios_referencia: EstadoPreciosReferencia;
+}
+
+export interface AcopioItemsPreciosReferencia {
+    acopio_id: number;
+    items: ItemPreciosReferencia[];
+}
+
 export interface Pedido {
     id: number;
     numero: string;
@@ -117,6 +147,17 @@ export interface ResumenCompensacionPedidoDetalle extends ResumenCompensacionDet
     origen: string;
 }
 
+export interface ResumenCompensacionItemValorizacion {
+    item_id: number;
+    descripcion: string;
+    cantidad_acopio: number;
+    cantidad_pedidos: number;
+    diferencia: number;
+    precio_referencia: number;
+    importe: number;
+    precio_faltante: boolean;
+}
+
 export interface ResumenCompensacionRow {
     proceso: string;
     label: string;
@@ -130,6 +171,7 @@ export interface ResumenCompensacionRow {
     precio_faltante: boolean;
     items_acopio: ResumenCompensacionItemDetalle[];
     pedidos: ResumenCompensacionPedidoDetalle[];
+    items_valorizacion?: ResumenCompensacionItemValorizacion[];
 }
 
 export interface ResumenCompensacion {

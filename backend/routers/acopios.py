@@ -15,11 +15,23 @@ from integrations.spf import services as spf_services
 from integrations.spf.database import get_spf_db
 from models import Acopio, AcopioItem, PrecioReferencia
 from schemas.precio_referencia import PrecioReferenciaResponse, PrecioReferenciaCreate, PrecioReferenciaUpdate
+from schemas.acopio_item_precio_referencia import (
+    AcopioItemsPreciosReferenciaResponse,
+    ItemPreciosReferenciaInput,
+    ItemPreciosReferenciaPatch,
+    ItemsPreciosReferenciaUpdate,
+)
 from services.proceso_inference import (
     PROCESS_FIELDS,
     PROCESS_UNITS,
 )
 from services.compensacion_service import build_resumen_compensacion
+from services.item_precios_referencia_service import (
+    build_items_reference_prices_matrix,
+    ensure_acopio_item_reference_prices,
+    save_item_reference_prices,
+    sync_item_reference_prices,
+)
 
 
 router = APIRouter()
@@ -525,6 +537,12 @@ async def update_acopio_item_procesos(
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, f"proceso_{field}", bool(value))
     item.procesos_autodetectados = True
+    sync_item_reference_prices(
+        db,
+        item.acopio,
+        item,
+        use_global_fallback=False,
+    )
 
     try:
         db.commit()
@@ -606,6 +624,99 @@ async def get_acopio_resumen_compensacion(
     if not resumen:
         raise HTTPException(status_code=404, detail="Acopio no encontrado")
     return resumen
+
+
+@router.get(
+    "/{acopio_id}/items-precios-referencia",
+    response_model=AcopioItemsPreciosReferenciaResponse,
+)
+async def get_items_precios_referencia(
+    acopio_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get the item-scoped reference-price matrix for an acopio."""
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    if not acopio:
+        raise HTTPException(status_code=404, detail="Acopio no encontrado")
+
+    try:
+        changed = ensure_acopio_item_reference_prices(db, acopio, use_global_fallback=True)
+        if changed:
+            db.commit()
+            db.refresh(acopio)
+        return build_items_reference_prices_matrix(db, acopio)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get item reference prices: {str(e)}"
+        )
+
+
+@router.put(
+    "/{acopio_id}/items-precios-referencia",
+    response_model=AcopioItemsPreciosReferenciaResponse,
+)
+async def set_items_precios_referencia(
+    acopio_id: int,
+    payload: ItemsPreciosReferenciaUpdate,
+    db: Session = Depends(get_db)
+):
+    """Save all edited item-scoped reference prices for an acopio."""
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    if not acopio:
+        raise HTTPException(status_code=404, detail="Acopio no encontrado")
+
+    try:
+        save_item_reference_prices(db, acopio, payload.items)
+        db.commit()
+        db.refresh(acopio)
+        return build_items_reference_prices_matrix(db, acopio)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save item reference prices: {str(e)}"
+        )
+
+
+@router.patch(
+    "/{acopio_id}/items/{item_id}/precios-referencia",
+    response_model=AcopioItemsPreciosReferenciaResponse,
+)
+async def patch_item_precios_referencia(
+    acopio_id: int,
+    item_id: int,
+    payload: ItemPreciosReferenciaPatch,
+    db: Session = Depends(get_db)
+):
+    """Update item-scoped reference prices for one acopio item."""
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    if not acopio:
+        raise HTTPException(status_code=404, detail="Acopio no encontrado")
+
+    item_payload = ItemPreciosReferenciaInput(
+        item_id=item_id,
+        conceptos=payload.conceptos,
+    )
+
+    try:
+        save_item_reference_prices(db, acopio, [item_payload])
+        db.commit()
+        db.refresh(acopio)
+        return build_items_reference_prices_matrix(db, acopio)
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save item reference prices: {str(e)}"
+        )
 
 
 @router.get("/{acopio_id}/precios-referencia", response_model=Optional[PrecioReferenciaResponse])

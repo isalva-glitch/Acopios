@@ -1,6 +1,9 @@
 """Tests for acopios API."""
 import pytest
 from datetime import date
+from decimal import Decimal
+
+from models import Acopio, AcopioItem, PrecioReferencia
 
 
 def test_health_check(client):
@@ -159,3 +162,145 @@ def test_update_acopio_fecha_vencimiento(client, db_session):
     detail_response = client.get(f"/acopios/{acopio_id}")
     assert detail_response.status_code == 200
     assert detail_response.json()["fecha_vencimiento"] == "2026-12-31"
+
+
+def _create_reference_price_acopio(db_session):
+    acopio = Acopio(
+        numero="PRECIOS-ITEM",
+        fecha_alta=date.today(),
+        total_m2=Decimal("150.00"),
+        total_ml=Decimal("200.00"),
+        total_pesos=Decimal("1000.00"),
+        total_unidades=10,
+        saldo_m2=Decimal("150.00"),
+        saldo_ml=Decimal("200.00"),
+        saldo_pesos=Decimal("1000.00"),
+        saldo_unidades=10,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="DVH templado",
+        cantidad=5,
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("120.00"),
+        total_pesos=Decimal("600.00"),
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("120.00"),
+        saldo_pesos=Decimal("600.00"),
+        saldo_cantidad=5,
+        proceso_vidrio_exterior=True,
+    )
+    db_session.add(item)
+    db_session.add(PrecioReferencia(
+        acopio_id=acopio.id,
+        vidrio_exterior=Decimal("10.00"),
+        pulido=Decimal("2.00"),
+    ))
+    db_session.commit()
+    return acopio, item
+
+
+def test_items_precios_referencia_migra_global_por_item(client, db_session):
+    acopio, item = _create_reference_price_acopio(db_session)
+
+    response = client.get(f"/acopios/{acopio.id}/items-precios-referencia")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["acopio_id"] == acopio.id
+    assert data["items"][0]["item_id"] == item.id
+    assert data["items"][0]["estado_precios_referencia"] == "completo"
+    concepto = data["items"][0]["conceptos"][0]
+    assert concepto["concepto"] == "vidrio_exterior"
+    assert concepto["unidad"] == "m2"
+    assert concepto["habilitado"] is True
+    assert Decimal(str(concepto["precio_base"])) == Decimal("10.00")
+    assert Decimal(str(concepto["precio_actual"])) == Decimal("10.00")
+    assert concepto["origen"] == "migrado"
+
+
+def test_items_precios_referencia_actualiza_precio_manual(client, db_session):
+    acopio, item = _create_reference_price_acopio(db_session)
+    client.get(f"/acopios/{acopio.id}/items-precios-referencia")
+
+    response = client.put(
+        f"/acopios/{acopio.id}/items-precios-referencia",
+        json={
+            "items": [
+                {
+                    "item_id": item.id,
+                    "conceptos": [
+                        {
+                            "concepto": "vidrio_exterior",
+                            "unidad": "m2",
+                            "precio_base": "10.00",
+                            "precio_actual": "15.50",
+                            "habilitado": True,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    concepto = response.json()["items"][0]["conceptos"][0]
+    assert Decimal(str(concepto["precio_base"])) == Decimal("10.00")
+    assert Decimal(str(concepto["precio_actual"])) == Decimal("15.50")
+    assert concepto["origen"] == "manual"
+
+
+def test_items_precios_referencia_rechaza_precio_negativo(client, db_session):
+    acopio, item = _create_reference_price_acopio(db_session)
+    response = client.put(
+        f"/acopios/{acopio.id}/items-precios-referencia",
+        json={
+            "items": [
+                {
+                    "item_id": item.id,
+                    "conceptos": [
+                        {
+                            "concepto": "vidrio_exterior",
+                            "unidad": "m2",
+                            "precio_base": "10.00",
+                            "precio_actual": "-1.00",
+                            "habilitado": True,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "negativo" in response.json()["detail"]
+
+
+def test_items_precios_referencia_rechaza_concepto_no_habilitado(client, db_session):
+    acopio, item = _create_reference_price_acopio(db_session)
+    response = client.put(
+        f"/acopios/{acopio.id}/items-precios-referencia",
+        json={
+            "items": [
+                {
+                    "item_id": item.id,
+                    "conceptos": [
+                        {
+                            "concepto": "pulido",
+                            "unidad": "ml",
+                            "precio_base": "2.00",
+                            "precio_actual": "2.00",
+                            "habilitado": True,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 400
+    assert "no esta habilitado" in response.json()["detail"]

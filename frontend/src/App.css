@@ -982,6 +982,261 @@
     color: #721c24;
 }
 
+.total-items-section {
+    min-width: 0;
+}
+
+.total-items-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.total-items-header h3 {
+    margin-bottom: 0;
+}
+
+.total-items-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.total-items-actions .btn,
+.total-item-expand {
+    min-height: 2.2rem;
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.total-items-table table {
+    min-width: 1180px;
+}
+
+.total-items-table th,
+.total-items-table td {
+    padding: 0.7rem 0.75rem;
+    vertical-align: middle;
+}
+
+.total-items-table th:nth-child(1),
+.total-items-table td:nth-child(1) {
+    width: 70px;
+}
+
+.total-items-table th:nth-child(3),
+.total-items-table td:nth-child(3),
+.total-items-table th:nth-child(4),
+.total-items-table td:nth-child(4),
+.total-items-table th:nth-child(5),
+.total-items-table td:nth-child(5),
+.total-items-table th:nth-child(6),
+.total-items-table td:nth-child(6) {
+    width: 90px;
+}
+
+.total-items-table th:nth-child(7),
+.total-items-table td:nth-child(7) {
+    width: 140px;
+}
+
+.total-items-table th:nth-child(8),
+.total-items-table td:nth-child(8),
+.total-items-table th:nth-child(9),
+.total-items-table td:nth-child(9) {
+    width: 130px;
+}
+
+.total-item-description {
+    min-width: 240px;
+    overflow-wrap: anywhere;
+}
+
+.reference-price-status {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 7.5rem;
+    min-height: 1.75rem;
+    padding: 0.25rem 0.55rem;
+    border: 1px solid #d9e2ec;
+    border-radius: 4px;
+    background: #f8f9fa;
+    color: #52616b;
+    font-size: 0.78rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.reference-price-status.completo {
+    border-color: #b7e4c7;
+    background: #f0fbf4;
+    color: #1f7a45;
+}
+
+.reference-price-status.incompleto,
+.reference-price-status.revisar {
+    border-color: #f8d49b;
+    background: #fff8e8;
+    color: #9a5b00;
+}
+
+.reference-price-status.sin_conceptos {
+    border-color: #d9e2ec;
+    background: #f3f5f7;
+    color: #6b7280;
+}
+
+.item-reference-editor-row td {
+    padding: 0;
+    background: #f8f9fa;
+}
+
+.item-reference-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    padding: 1rem;
+    border-top: 1px solid #d9e2ec;
+}
+
+.item-reference-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.item-reference-editor-header .btn {
+    min-height: 2.1rem;
+    padding: 0.4rem 0.7rem;
+    font-size: 0.82rem;
+    white-space: nowrap;
+}
+
+.item-reference-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(360px, 1fr));
+    gap: 0.7rem;
+}
+
+.reference-concept-row {
+    display: grid;
+    grid-template-columns: minmax(190px, 230px) minmax(0, 1fr);
+    gap: 0.75rem;
+    align-items: start;
+    min-width: 0;
+    padding: 0.7rem;
+    border: 1px solid #d9e2ec;
+    border-radius: 4px;
+    background: #ffffff;
+}
+
+.reference-concept-row.has-warning {
+    border-color: #f8d49b;
+    background: #fffdf7;
+}
+
+.reference-concept-row.is-disabled {
+    background: #f3f5f7;
+}
+
+.reference-concept-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(90px, 1fr)) auto;
+    gap: 0.55rem;
+    align-items: end;
+    min-width: 0;
+}
+
+.reference-concept-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    color: #52616b;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.reference-concept-fields input {
+    width: 100%;
+    min-height: 2.2rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid #cfd8df;
+    border-radius: 4px;
+    font-size: 0.9rem;
+}
+
+.reference-concept-fields input:focus {
+    outline: none;
+    border-color: #3498db;
+}
+
+.reference-concept-fields input[aria-invalid="true"] {
+    border-color: #d46b08;
+    background: #fff8e8;
+}
+
+.reference-concept-actions {
+    display: flex;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.reference-concept-actions .btn {
+    min-height: 2.2rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.reference-concept-disabled {
+    min-height: 2.2rem;
+    display: flex;
+    align-items: center;
+    color: #6b7280;
+    font-size: 0.85rem;
+}
+
+.item-reference-details {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+}
+
+.item-reference-details details {
+    min-width: 260px;
+}
+
+.item-reference-details summary {
+    cursor: pointer;
+    color: #1f6f9f;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.compact-detail-table {
+    margin-top: 0.5rem;
+    box-shadow: none;
+    border: 1px solid #e2e8ee;
+}
+
+.compact-detail-table table {
+    min-width: 520px;
+}
+
+.compact-detail-table th,
+.compact-detail-table td {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.82rem;
+}
+
 .resumen-compensacion-header {
     display: flex;
     align-items: center;
@@ -1297,6 +1552,10 @@
     .acopio-item-metrics {
         grid-template-columns: repeat(2, minmax(120px, 1fr));
     }
+
+    .item-reference-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 @media (max-width: 900px) {
@@ -1309,6 +1568,11 @@
         padding-left: 0;
         border-top: 1px solid #cfd8df;
         border-left: 0;
+    }
+
+    .reference-concept-row,
+    .reference-concept-fields {
+        grid-template-columns: 1fr;
     }
 
     .totales-consumos-grid {
@@ -1393,6 +1657,22 @@
         padding-left: 0;
         border-top: 1px solid #cfd8df;
         border-left: 0;
+    }
+
+    .total-items-header,
+    .item-reference-editor-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .total-items-actions,
+    .total-items-actions .btn {
+        width: 100%;
+    }
+
+    .reference-concept-row,
+    .reference-concept-fields {
+        grid-template-columns: 1fr;
     }
 
     .resumen-compensacion-totals {

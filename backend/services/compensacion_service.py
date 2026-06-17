@@ -4,7 +4,11 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from models import Acopio
+from models import Acopio, AcopioItemPrecioReferencia
+from services.item_precios_referencia_service import (
+    ensure_acopio_item_reference_prices,
+    is_reference_price_missing,
+)
 from services.proceso_inference import (
     PROCESS_FIELDS,
     PROCESS_UNITS,
@@ -76,6 +80,21 @@ def _build_acopio_process_totals(acopio: Acopio) -> tuple[dict, dict]:
     return totals, detail
 
 
+def _build_acopio_item_process_totals(acopio: Acopio) -> dict:
+    """Sum acopio process quantities by item and concept."""
+    totals = {}
+    for item in acopio.items:
+        for field in PROCESS_FIELDS:
+            if not bool(getattr(item, f"proceso_{field}", False)):
+                continue
+
+            unidad = PROCESS_UNITS[field]
+            cantidad = _to_decimal(item.total_m2 if unidad == "m2" else item.total_ml)
+            totals[(item.id, field)] = totals.get((item.id, field), Decimal("0")) + cantidad
+
+    return totals
+
+
 def _snapshot_processes_for_compensacion(imputacion) -> list:
     procesos = list(imputacion.procesos or [])
     if not procesos:
@@ -93,6 +112,59 @@ def _snapshot_processes_for_compensacion(imputacion) -> list:
         ]
 
     return procesos
+
+
+def _add_item_process_total(totals: dict, item_id: int, field: str, cantidad: Decimal) -> None:
+    if item_id is None or cantidad == 0:
+        return
+    key = (item_id, field)
+    totals[key] = totals.get(key, Decimal("0")) + cantidad
+
+
+def _item_process_qty(item, field: str) -> Decimal:
+    unidad = PROCESS_UNITS[field]
+    return _to_decimal(item.total_m2 if unidad == "m2" else item.total_ml)
+
+
+def _distribute_snapshot_process_to_items(
+    acopio: Acopio,
+    totals: dict,
+    field: str,
+    cantidad: Decimal,
+    target_item_id: int | None,
+    warnings: list[str],
+) -> None:
+    item_map = {item.id: item for item in acopio.items}
+    if target_item_id and target_item_id in item_map:
+        _add_item_process_total(totals, target_item_id, field, cantidad)
+        return
+
+    candidates = [
+        item
+        for item in acopio.items
+        if bool(getattr(item, f"proceso_{field}", False))
+    ]
+    if not candidates:
+        warnings.append(
+            f"No hay item habilitado para asignar el proceso '{field}' de pedidos imputados."
+        )
+        return
+
+    total_qty = sum((_item_process_qty(item, field) for item in candidates), Decimal("0"))
+    if total_qty == 0:
+        warnings.append(
+            f"No se pudo prorratear el proceso '{field}' porque los items habilitados no tienen cantidad."
+        )
+        return
+
+    for item in candidates:
+        item_qty = _item_process_qty(item, field)
+        _add_item_process_total(
+            totals,
+            item.id,
+            field,
+            _round_qty(cantidad * item_qty / total_qty),
+        )
 
 
 def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[dict, dict]:
@@ -207,6 +279,131 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
     return totals, detail
 
 
+def _build_pedido_item_process_totals(acopio: Acopio, warnings: list[str]) -> dict:
+    """Calculate consumed process quantities by item and concept."""
+    totals = {}
+    item_map = {item.id: item for item in acopio.items}
+    acopio_total_m2 = sum(_to_decimal(it.total_m2) for it in acopio.items)
+    acopio_total_ml = sum(_to_decimal(it.total_ml) for it in acopio.items)
+
+    for imputacion in acopio.imputaciones:
+        procesos_snapshot = _snapshot_processes_for_compensacion(imputacion)
+        if procesos_snapshot:
+            for proceso in procesos_snapshot:
+                field = proceso.proceso
+                if field not in PROCESS_FIELDS:
+                    continue
+                cantidad = _round_qty(_to_decimal(proceso.cantidad))
+                if cantidad == 0:
+                    continue
+                _distribute_snapshot_process_to_items(
+                    acopio,
+                    totals,
+                    field,
+                    cantidad,
+                    imputacion.acopio_item_id,
+                    warnings,
+                )
+            continue
+
+        imp_m2 = _to_decimal(imputacion.cantidad_m2)
+        imp_ml = _to_decimal(imputacion.cantidad_ml)
+
+        if imputacion.acopio_item_id and imputacion.acopio_item_id in item_map:
+            contributing_items = [(item_map[imputacion.acopio_item_id], imp_m2, imp_ml)]
+        else:
+            contributing_items = [
+                (
+                    item,
+                    (imp_m2 * _to_decimal(item.total_m2) / acopio_total_m2)
+                    if acopio_total_m2 != 0 else Decimal("0"),
+                    (imp_ml * _to_decimal(item.total_ml) / acopio_total_ml)
+                    if acopio_total_ml != 0 else Decimal("0"),
+                )
+                for item in acopio.items
+            ]
+
+        for item, item_imp_m2, item_imp_ml in contributing_items:
+            item_total_m2 = _to_decimal(item.total_m2)
+            item_total_ml = _to_decimal(item.total_ml)
+
+            for field in PROCESS_FIELDS:
+                if not bool(getattr(item, f"proceso_{field}", False)):
+                    continue
+
+                unidad = PROCESS_UNITS[field]
+                item_process_qty = item_total_m2 if unidad == "m2" else item_total_ml
+                imp_qty_for_unit = item_imp_m2 if unidad == "m2" else item_imp_ml
+                item_total_for_unit = item_total_m2 if unidad == "m2" else item_total_ml
+
+                if item_total_for_unit == 0:
+                    continue
+
+                cantidad = _round_qty((imp_qty_for_unit / item_total_for_unit) * item_process_qty)
+                _add_item_process_total(totals, item.id, field, cantidad)
+
+    return totals
+
+
+def _build_item_price_records(db: Session, acopio: Acopio) -> dict:
+    ensure_acopio_item_reference_prices(db, acopio, use_global_fallback=True)
+    records = db.query(AcopioItemPrecioReferencia).filter(
+        AcopioItemPrecioReferencia.acopio_id == acopio.id,
+    ).all()
+    return {
+        (record.acopio_item_id, record.concepto): record
+        for record in records
+    }
+
+
+def _build_item_valuation(
+    acopio: Acopio,
+    field: str,
+    acopio_item_totals: dict,
+    pedido_item_totals: dict,
+    price_records: dict,
+    warnings: list[str],
+) -> tuple[Decimal, bool, list[dict]]:
+    importe_total = Decimal("0")
+    precio_faltante = False
+    detail = []
+
+    for item in acopio.items:
+        if not bool(getattr(item, f"proceso_{field}", False)):
+            continue
+
+        cantidad_acopio = _round_qty(acopio_item_totals.get((item.id, field), Decimal("0")))
+        cantidad_pedidos = _round_qty(pedido_item_totals.get((item.id, field), Decimal("0")))
+        diferencia = _round_qty(cantidad_acopio - cantidad_pedidos)
+        record = price_records.get((item.id, field))
+        missing = diferencia != 0 and is_reference_price_missing(record)
+        precio = Decimal("0") if missing or record is None else _to_decimal(record.precio_actual)
+        importe = _round_money(diferencia * precio)
+
+        if missing:
+            precio_faltante = True
+            item_label = item.numero_item if item.numero_item is not None else item.id
+            warnings.append(
+                f"Falta precio de referencia para {PROCESS_LABELS[field]} en item {item_label}."
+            )
+        else:
+            importe_total += importe
+
+        if diferencia != 0 or record is not None:
+            detail.append({
+                "item_id": item.id,
+                "descripcion": item.descripcion,
+                "cantidad_acopio": _as_float(cantidad_acopio),
+                "cantidad_pedidos": _as_float(cantidad_pedidos),
+                "diferencia": _as_float(diferencia),
+                "precio_referencia": _as_float(_round_money(precio)),
+                "importe": _as_float(importe),
+                "precio_faltante": missing,
+            })
+
+    return _round_money(importe_total), precio_faltante, detail
+
+
 def build_resumen_compensacion(
     db: Session,
     acopio_id: int,
@@ -220,8 +417,10 @@ def build_resumen_compensacion(
     warnings: list[str] = []
     acopio_totals, acopio_detail = _build_acopio_process_totals(acopio)
     pedido_totals, pedido_detail = _build_pedido_process_totals(acopio, warnings)
+    acopio_item_totals = _build_acopio_item_process_totals(acopio)
+    pedido_item_totals = _build_pedido_item_process_totals(acopio, warnings)
+    price_records = _build_item_price_records(db, acopio)
 
-    precios = acopio.precios_referencia
     total_positivo = Decimal("0")
     total_negativo = Decimal("0")
     rows = []
@@ -231,8 +430,15 @@ def build_resumen_compensacion(
         cantidad_acopio = _round_qty(acopio_totals[field])
         cantidad_pedidos = _round_qty(pedido_totals[field])
         diferencia = _round_qty(cantidad_acopio - cantidad_pedidos)
-        precio = _to_decimal(getattr(precios, field, 0) if precios else 0)
-        importe = _round_money(diferencia * precio)
+        importe, precio_faltante, items_valorizacion = _build_item_valuation(
+            acopio,
+            field,
+            acopio_item_totals,
+            pedido_item_totals,
+            price_records,
+            warnings,
+        )
+        precio = _round_money(importe / diferencia) if diferencia != 0 else Decimal("0")
 
         if importe > 0:
             total_positivo += importe
@@ -245,12 +451,6 @@ def build_resumen_compensacion(
             estado = "excedente_pedido"
         else:
             estado = "compensado"
-
-        precio_faltante = diferencia != 0 and precio == 0
-        if precio_faltante:
-            warnings.append(
-                f"Falta precio de referencia para {PROCESS_LABELS[field]}."
-            )
 
         rows.append({
             "proceso": field,
@@ -265,6 +465,7 @@ def build_resumen_compensacion(
             "precio_faltante": precio_faltante,
             "items_acopio": acopio_detail[field],
             "pedidos": pedido_detail[field],
+            "items_valorizacion": items_valorizacion,
         })
 
     saldo = _round_money(total_positivo + total_negativo)

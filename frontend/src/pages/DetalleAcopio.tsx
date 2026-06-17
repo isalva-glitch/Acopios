@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useParams, useBlocker } from 'react-router-dom';
 import apiClient from '../api/client';
-import PreciosReferenciaModal from '../components/PreciosReferenciaModal';
-import type { ResumenCompensacion } from '../types';
-import { formatCurrencyAR, formatNumberAR } from '../utils/formatters';
+import type {
+    AcopioItemsPreciosReferencia,
+    ConceptoPrecioReferencia,
+    EstadoPreciosReferencia,
+    ResumenCompensacion
+} from '../types';
+import { formatCurrencyAR, formatDecimalInput, formatNumberAR, parseDecimalInput } from '../utils/formatters';
 import {
     PRECIO_REFERENCIA_PROCESOS,
     type PrecioReferenciaProcesoKey,
@@ -16,11 +20,81 @@ const PROCESO_EXCLUSION_GROUPS: PrecioReferenciaProcesoKey[][] = [
     ['opacificado_perimetral', 'opacificado_total'],
 ];
 
+const PRECIO_STATUS_LABELS: Record<EstadoPreciosReferencia, string> = {
+    completo: 'Completo',
+    incompleto: 'Incompleto',
+    sin_conceptos: 'Sin conceptos',
+    revisar: 'Revisar',
+};
+
+type PrecioCampo = 'precio_base' | 'precio_actual';
+
+const itemPrecioInputKey = (
+    itemId: number,
+    concepto: string,
+    field: PrecioCampo
+) => `${itemId}:${concepto}:${field}`;
+
+const formatPrecioInputValue = (value: number | null | undefined) =>
+    value === null || value === undefined ? '' : formatNumberAR(value, 2);
+
+const formatPrecioFocusValue = (value: number | null | undefined) =>
+    value === null || value === undefined ? '' : formatDecimalInput(value);
+
+const parseNullableDecimalInput = (value: string): number | null => {
+    if (!value.trim()) return null;
+    return parseDecimalInput(value);
+};
+
+const toNullableNumber = (value: number | string | null | undefined): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeItemsPreciosReferencia = (
+    matrix: AcopioItemsPreciosReferencia | null
+): AcopioItemsPreciosReferencia | null => {
+    if (!matrix) return null;
+
+    return {
+        ...matrix,
+        items: matrix.items.map((item) => ({
+            ...item,
+            total_m2: Number(item.total_m2 || 0),
+            total_ml: Number(item.total_ml || 0),
+            total_pesos: Number(item.total_pesos || 0),
+            conceptos: item.conceptos.map((concepto) => ({
+                ...concepto,
+                precio_base: toNullableNumber(concepto.precio_base),
+                precio_actual: toNullableNumber(concepto.precio_actual),
+            })),
+        })),
+    };
+};
+
+const buildItemPrecioInputs = (
+    matrix: AcopioItemsPreciosReferencia | null
+): Record<string, string> => {
+    const inputs: Record<string, string> = {};
+    matrix?.items.forEach((item) => {
+        item.conceptos.forEach((concepto) => {
+            inputs[itemPrecioInputKey(item.item_id, concepto.concepto, 'precio_base')] =
+                formatPrecioInputValue(concepto.precio_base);
+            inputs[itemPrecioInputKey(item.item_id, concepto.concepto, 'precio_actual')] =
+                formatPrecioInputValue(concepto.precio_actual);
+        });
+    });
+    return inputs;
+};
+
 function DetalleAcopio() {
     const { id } = useParams<{ id: string }>();
     const [acopio, setAcopio] = useState<any>(null);
     const [originalAcopio, setOriginalAcopio] = useState<any>(null);
-    const [pendingPrecios, setPendingPrecios] = useState<any>(null);
+    const [itemsPreciosReferencia, setItemsPreciosReferencia] = useState<AcopioItemsPreciosReferencia | null>(null);
+    const [itemPrecioInputs, setItemPrecioInputs] = useState<Record<string, string>>({});
+    const [expandedPriceItems, setExpandedPriceItems] = useState<Record<number, boolean>>({});
     const [hasChanges, setHasChanges] = useState(false);
     const [isSavingAll, setIsSavingAll] = useState(false);
 
@@ -41,7 +115,6 @@ function DetalleAcopio() {
     const [imputationSuccess, setImputationSuccess] = useState(false);
     const [anulandoId, setAnulandoId] = useState<number | null>(null);
     const [anulacionError, setAnulacionError] = useState<string | null>(null);
-    const [showPreciosModal, setShowPreciosModal] = useState(false);
     const [itemProcessError, setItemProcessError] = useState<string | null>(null);
     const [fechaVencimientoError, setFechaVencimientoError] = useState<string | null>(null);
 
@@ -81,12 +154,16 @@ function DetalleAcopio() {
             setAcopio(data);
             setOriginalAcopio(JSON.parse(JSON.stringify(data)));
 
-            // Fetch reference prices initially so we have them if they open the modal
+            // Fetch item-scoped reference prices for the Total Items panel
             try {
-                const preciosResponse = await apiClient.get(`/acopios/${id}/precios-referencia`);
-                setPendingPrecios(preciosResponse.data || null);
+                const preciosResponse = await apiClient.get<AcopioItemsPreciosReferencia>(`/acopios/${id}/items-precios-referencia`);
+                const preciosData = normalizeItemsPreciosReferencia(preciosResponse.data || null);
+                setItemsPreciosReferencia(preciosData);
+                setItemPrecioInputs(buildItemPrecioInputs(preciosData));
             } catch (err) {
-                console.error('Error fetching initial reference prices:', err);
+                console.error('Error fetching item reference prices:', err);
+                setItemsPreciosReferencia(null);
+                setItemPrecioInputs({});
             }
 
             loadResumenCompensacion(id!);
@@ -241,6 +318,85 @@ function DetalleAcopio() {
             });
     };
 
+    const calculateItemPrecioStatus = (
+        conceptos: ConceptoPrecioReferencia[]
+    ): EstadoPreciosReferencia => {
+        const enabledConcepts = conceptos.filter((concepto) => concepto.habilitado);
+        if (enabledConcepts.length === 0) return 'sin_conceptos';
+
+        return enabledConcepts.some((concepto) =>
+            concepto.precio_actual === null ||
+            concepto.precio_actual === undefined ||
+            (Number(concepto.precio_actual) === 0 && concepto.origen !== 'manual')
+        )
+            ? 'incompleto'
+            : 'completo';
+    };
+
+    const getItemPrecioRow = (itemId: number) =>
+        itemsPreciosReferencia?.items.find((item) => item.item_id === itemId) || null;
+
+    const getItemPrecioConcepto = (
+        itemId: number,
+        concepto: PrecioReferenciaProcesoKey
+    ) => getItemPrecioRow(itemId)?.conceptos.find((current) => current.concepto === concepto) || null;
+
+    const createPendingConcepto = (
+        proceso: typeof PRECIO_REFERENCIA_PROCESOS[number]
+    ): ConceptoPrecioReferencia => ({
+        concepto: proceso.key,
+        unidad: proceso.unidad,
+        habilitado: true,
+        precio_base: null,
+        precio_actual: null,
+        origen: 'autodetectado',
+    });
+
+    const updateItemsPreciosReferencia = (
+        updater: (matrix: AcopioItemsPreciosReferencia) => AcopioItemsPreciosReferencia
+    ) => {
+        setItemsPreciosReferencia((prev) => {
+            if (!prev) return prev;
+            const next = updater(prev);
+            setItemPrecioInputs(buildItemPrecioInputs(next));
+            return next;
+        });
+    };
+
+    const syncLocalPrecioConcepto = (
+        itemId: number,
+        processKey: PrecioReferenciaProcesoKey,
+        checked: boolean
+    ) => {
+        const proceso = PRECIO_REFERENCIA_PROCESOS.find((current) => current.key === processKey);
+        if (!proceso) return;
+
+        updateItemsPreciosReferencia((matrix) => ({
+            ...matrix,
+            items: matrix.items.map((item) => {
+                if (item.item_id !== itemId) return item;
+
+                const conceptos = [...item.conceptos];
+                const index = conceptos.findIndex((concepto) => concepto.concepto === processKey);
+                if (index >= 0) {
+                    conceptos[index] = {
+                        ...conceptos[index],
+                        habilitado: checked,
+                        unidad: proceso.unidad,
+                    };
+                } else if (checked) {
+                    conceptos.push(createPendingConcepto(proceso));
+                }
+
+                return {
+                    ...item,
+                    conceptos,
+                    estado_precios_referencia: calculateItemPrecioStatus(conceptos),
+                };
+            }),
+        }));
+    };
+
     const handleToggleItemProceso = (
         itemId: number,
         processKey: PrecioReferenciaProcesoKey,
@@ -262,6 +418,8 @@ function DetalleAcopio() {
         };
 
         setItemProcessError(null);
+        syncLocalPrecioConcepto(itemId, processKey, checked);
+        keysToUncheck.forEach((key) => syncLocalPrecioConcepto(itemId, key, false));
         setHasChanges(true);
 
         // Actualización local de procesos y procesos_detalle
@@ -301,11 +459,288 @@ function DetalleAcopio() {
         });
     };
 
+    const updateConceptoPrecio = (
+        itemId: number,
+        concepto: string,
+        updater: (concepto: ConceptoPrecioReferencia) => ConceptoPrecioReferencia
+    ) => {
+        setItemsPreciosReferencia((prev) => {
+            if (!prev) return prev;
+
+            return {
+                ...prev,
+                items: prev.items.map((item) => {
+                    if (item.item_id !== itemId) return item;
+
+                    const conceptos = item.conceptos.map((current) =>
+                        current.concepto === concepto ? updater(current) : current
+                    );
+
+                    return {
+                        ...item,
+                        conceptos,
+                        estado_precios_referencia: calculateItemPrecioStatus(conceptos),
+                    };
+                }),
+            };
+        });
+    };
+
+    const handleItemPrecioChange = (
+        itemId: number,
+        concepto: string,
+        field: PrecioCampo,
+        value: string
+    ) => {
+        setItemPrecioInputs((prev) => ({
+            ...prev,
+            [itemPrecioInputKey(itemId, concepto, field)]: value,
+        }));
+
+        const parsedValue = parseNullableDecimalInput(value);
+        updateConceptoPrecio(itemId, concepto, (current) => ({
+            ...current,
+            [field]: parsedValue,
+            origen: 'manual',
+        }));
+        setHasChanges(true);
+    };
+
+    const handleItemPrecioFocus = (
+        itemId: number,
+        concepto: PrecioReferenciaProcesoKey,
+        field: PrecioCampo
+    ) => {
+        const current = getItemPrecioConcepto(itemId, concepto);
+        setItemPrecioInputs((prev) => ({
+            ...prev,
+            [itemPrecioInputKey(itemId, concepto, field)]: formatPrecioFocusValue(current?.[field]),
+        }));
+    };
+
+    const handleItemPrecioBlur = (
+        itemId: number,
+        concepto: PrecioReferenciaProcesoKey,
+        field: PrecioCampo
+    ) => {
+        const current = getItemPrecioConcepto(itemId, concepto);
+        setItemPrecioInputs((prev) => ({
+            ...prev,
+            [itemPrecioInputKey(itemId, concepto, field)]: formatPrecioInputValue(current?.[field]),
+        }));
+    };
+
+    const handleCopyBaseToActual = (
+        itemId: number,
+        concepto: PrecioReferenciaProcesoKey
+    ) => {
+        const current = getItemPrecioConcepto(itemId, concepto);
+        if (!current || current.precio_base === null || current.precio_base === undefined) return;
+
+        updateConceptoPrecio(itemId, concepto, (itemConcepto) => ({
+            ...itemConcepto,
+            precio_actual: current.precio_base,
+            origen: 'manual',
+        }));
+        setItemPrecioInputs((prev) => ({
+            ...prev,
+            [itemPrecioInputKey(itemId, concepto, 'precio_actual')]: formatPrecioInputValue(current.precio_base),
+        }));
+        setHasChanges(true);
+    };
+
+    const handleCompleteMissingPrices = (itemId?: number) => {
+        setItemsPreciosReferencia((prev) => {
+            if (!prev) return prev;
+
+            const next = {
+                ...prev,
+                items: prev.items.map((item) => {
+                    if (itemId && item.item_id !== itemId) return item;
+
+                    const conceptos = item.conceptos.map((concepto) => {
+                        const missing = concepto.habilitado && (
+                            concepto.precio_actual === null ||
+                            concepto.precio_actual === undefined ||
+                            (Number(concepto.precio_actual) === 0 && concepto.origen !== 'manual')
+                        );
+                        if (!missing || concepto.precio_base === null || concepto.precio_base === undefined) {
+                            return concepto;
+                        }
+                        return {
+                            ...concepto,
+                            precio_actual: concepto.precio_base,
+                            origen: 'manual' as const,
+                        };
+                    });
+
+                    return {
+                        ...item,
+                        conceptos,
+                        estado_precios_referencia: calculateItemPrecioStatus(conceptos),
+                    };
+                }),
+            };
+            setItemPrecioInputs(buildItemPrecioInputs(next));
+            return next;
+        });
+        setHasChanges(true);
+    };
+
+    const normalizeSimilarityText = (value: unknown) =>
+        String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .trim();
+
+    const getItemSimilarityKey = (item: any) => {
+        const enabledProcesos = PRECIO_REFERENCIA_PROCESOS
+            .filter((proceso) => Boolean(item.procesos?.[proceso.key]))
+            .map((proceso) => proceso.key)
+            .sort()
+            .join('|');
+        const compositionText = [
+            item.descripcion,
+            item.material,
+            item.tipologia,
+        ].map(normalizeSimilarityText).join('|');
+
+        return `${enabledProcesos}::${compositionText}`;
+    };
+
+    const handleApplyPriceToSimilar = (
+        itemId: number,
+        concepto: PrecioReferenciaProcesoKey
+    ) => {
+        const sourceItem = acopio.items.find((item: any) => item.id === itemId);
+        const sourceConcepto = getItemPrecioConcepto(itemId, concepto);
+        if (!sourceItem || !sourceConcepto || sourceConcepto.precio_actual === null) return;
+
+        const sourceKey = getItemSimilarityKey(sourceItem);
+        const similarItemIds = new Set(
+            acopio.items
+                .filter((item: any) =>
+                    item.id !== itemId &&
+                    Boolean(item.procesos?.[concepto]) &&
+                    getItemSimilarityKey(item) === sourceKey
+                )
+                .map((item: any) => item.id)
+        );
+        if (similarItemIds.size === 0) return;
+
+        setItemsPreciosReferencia((prev) => {
+            if (!prev) return prev;
+
+            const next = {
+                ...prev,
+                items: prev.items.map((item) => {
+                    if (!similarItemIds.has(item.item_id)) return item;
+
+                    const conceptos = item.conceptos.map((current) =>
+                        current.concepto === concepto
+                            ? {
+                                ...current,
+                                precio_actual: sourceConcepto.precio_actual,
+                                origen: 'manual' as const,
+                            }
+                            : current
+                    );
+
+                    return {
+                        ...item,
+                        conceptos,
+                        estado_precios_referencia: calculateItemPrecioStatus(conceptos),
+                    };
+                }),
+            };
+            setItemPrecioInputs(buildItemPrecioInputs(next));
+            return next;
+        });
+        setHasChanges(true);
+    };
+
+    const scrollToResumenCompensacion = () => {
+        document
+            .querySelector('.resumen-compensacion-section')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    const scrollToTotalItems = () => {
+        document
+            .querySelector('.total-items-section')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    const validateItemsPreciosBeforeSave = (): boolean => {
+        if (!itemsPreciosReferencia) return false;
+
+        const missing: string[] = [];
+        const negative: string[] = [];
+        const zeroPrices: string[] = [];
+
+        itemsPreciosReferencia.items.forEach((item) => {
+            item.conceptos
+                .filter((concepto) => concepto.habilitado)
+                .forEach((concepto) => {
+                    const label = `Item ${item.numero_item} - ${concepto.concepto}`;
+                    if (concepto.precio_actual === null || concepto.precio_actual === undefined) {
+                        missing.push(label);
+                    }
+                    if ((concepto.precio_actual ?? 0) < 0 || (concepto.precio_base ?? 0) < 0) {
+                        negative.push(label);
+                    }
+                    if (Number(concepto.precio_actual) === 0) {
+                        zeroPrices.push(label);
+                    }
+                });
+        });
+
+        if (missing.length > 0) {
+            throw new Error(`Faltan precios de referencia: ${missing.slice(0, 4).join(', ')}`);
+        }
+        if (negative.length > 0) {
+            throw new Error(`Hay precios negativos: ${negative.slice(0, 4).join(', ')}`);
+        }
+        if (zeroPrices.length > 0) {
+            const confirmed = window.confirm(`Confirma guardar precio 0 en: ${zeroPrices.slice(0, 4).join(', ')}?`);
+            if (!confirmed) {
+                throw new Error('Debe confirmar los precios 0 para poder guardar.');
+            }
+            return true;
+        }
+
+        return false;
+    };
+
+    const buildItemsPreciosPayload = (confirmarCero: boolean) => ({
+        items: (itemsPreciosReferencia?.items || []).map((item) => ({
+            item_id: item.item_id,
+            conceptos: item.conceptos.map((concepto) => ({
+                concepto: concepto.concepto,
+                unidad: concepto.unidad,
+                precio_base: concepto.precio_base,
+                precio_actual: concepto.precio_actual,
+                habilitado: concepto.habilitado,
+                confirmar_cero: confirmarCero,
+            })),
+        })),
+    });
+
     const handleSaveChanges = async () => {
         const fechaVencimiento = acopio?.fecha_vencimiento || '';
         if (!fechaVencimiento) {
             setFechaVencimientoError('La fecha de vencimiento del acopio es obligatoria.');
             throw new Error('La fecha de vencimiento del acopio es obligatoria.');
+        }
+
+        let confirmarPrecioCero = false;
+        try {
+            confirmarPrecioCero = validateItemsPreciosBeforeSave();
+        } catch (err: any) {
+            setItemProcessError(err.message || 'Revise los precios de referencia por item.');
+            throw err;
         }
 
         setIsSavingAll(true);
@@ -341,9 +776,12 @@ function DetalleAcopio() {
             }
             await Promise.all(savePromises);
 
-            // 3. Guardar precios de referencia
-            if (pendingPrecios) {
-                await apiClient.post(`/acopios/${id}/precios-referencia`, pendingPrecios);
+            // 3. Guardar precios de referencia por item
+            if (itemsPreciosReferencia) {
+                await apiClient.put(
+                    `/acopios/${id}/items-precios-referencia`,
+                    buildItemsPreciosPayload(confirmarPrecioCero)
+                );
             }
 
             // Recargar acopio desde la base de datos para refrescar todo
@@ -366,6 +804,264 @@ function DetalleAcopio() {
             }
         }
     };
+
+    const renderTotalItemsPanel = () => (
+        <div className="form-section total-items-section">
+            <div className="total-items-header">
+                <h3>Total Items ({acopio.items.length})</h3>
+                <div className="total-items-actions">
+                    <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => handleCompleteMissingPrices()}
+                        disabled={isSavingAll || !itemsPreciosReferencia}
+                    >
+                        Completar faltantes
+                    </button>
+                    <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={scrollToResumenCompensacion}
+                    >
+                        Ver impacto
+                    </button>
+                </div>
+            </div>
+            {itemProcessError && (
+                <div className="item-process-error">
+                    {itemProcessError}
+                </div>
+            )}
+            <div className="table total-items-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Descripcion</th>
+                            <th>Cantidad</th>
+                            <th>m2</th>
+                            <th>ml</th>
+                            <th>Panos</th>
+                            <th>Importe</th>
+                            <th>Precios ref.</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {acopio.items.map((item: any, idx: number) => {
+                            const precioRow = getItemPrecioRow(item.id);
+                            const estado = precioRow?.estado_precios_referencia || 'revisar';
+                            const expanded = Boolean(expandedPriceItems[item.id]);
+                            const panosCount = item.panos.reduce((acc: number, p: any) => acc + p.cantidad, 0);
+
+                            return (
+                                <Fragment key={item.id}>
+                                    <tr className="total-item-row">
+                                        <td>{precioRow?.numero_item || idx + 1}</td>
+                                        <td className="total-item-description">{item.descripcion}</td>
+                                        <td>{item.totals.unidades}</td>
+                                        <td>{formatNumberAR(item.totals.m2, 2)}</td>
+                                        <td>{formatNumberAR(item.totals.ml, 2)}</td>
+                                        <td>{panosCount}</td>
+                                        <td>{formatCurrencyAR(item.totals.pesos)}</td>
+                                        <td>
+                                            <span className={`reference-price-status ${estado}`}>
+                                                {PRECIO_STATUS_LABELS[estado]}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <button
+                                                type="button"
+                                                className="btn btn-secondary total-item-expand"
+                                                onClick={() => setExpandedPriceItems((prev) => ({
+                                                    ...prev,
+                                                    [item.id]: !prev[item.id],
+                                                }))}
+                                            >
+                                                {expanded ? 'Cerrar' : 'Editar'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {expanded && (
+                                        <tr className="item-reference-editor-row">
+                                            <td colSpan={9}>
+                                                <div className="item-reference-editor">
+                                                    <div className="item-reference-editor-header">
+                                                        <strong>Item {precioRow?.numero_item || idx + 1} - {item.descripcion}</strong>
+                                                        <button
+                                                            type="button"
+                                                            className="btn btn-secondary"
+                                                            onClick={() => handleCompleteMissingPrices(item.id)}
+                                                            disabled={isSavingAll}
+                                                        >
+                                                            Completar faltantes
+                                                        </button>
+                                                    </div>
+                                                    <div className="item-reference-grid">
+                                                        {PRECIO_REFERENCIA_PROCESOS.map((proceso) => {
+                                                            const checked = Boolean(item.procesos?.[proceso.key]);
+                                                            const cantidad = getItemProcesoCantidad(item, proceso.unidad);
+                                                            const concepto = getItemPrecioConcepto(item.id, proceso.key);
+                                                            const missing = checked && (
+                                                                !concepto ||
+                                                                concepto.precio_actual === null ||
+                                                                concepto.precio_actual === undefined ||
+                                                                (Number(concepto.precio_actual) === 0 && concepto.origen !== 'manual')
+                                                            );
+                                                            const baseKey = itemPrecioInputKey(item.id, proceso.key, 'precio_base');
+                                                            const actualKey = itemPrecioInputKey(item.id, proceso.key, 'precio_actual');
+
+                                                            return (
+                                                                <div
+                                                                    className={`reference-concept-row${checked ? ' is-enabled' : ' is-disabled'}${missing ? ' has-warning' : ''}`}
+                                                                    key={proceso.key}
+                                                                >
+                                                                    <label
+                                                                        className={`item-process-check${checked ? ' is-checked' : ''}`}
+                                                                        title={`${proceso.label}: ${formatProcesoCantidad(cantidad)} ${proceso.unidad}`}
+                                                                    >
+                                                                        <input
+                                                                            type="checkbox"
+                                                                            checked={checked}
+                                                                            disabled={isSavingAll}
+                                                                            onChange={(event) => handleToggleItemProceso(
+                                                                                item.id,
+                                                                                proceso.key,
+                                                                                event.target.checked
+                                                                            )}
+                                                                        />
+                                                                        <span className="item-process-label">
+                                                                            <span className="item-process-name">{proceso.shortLabel}</span>
+                                                                            <span className="item-process-value">
+                                                                                {checked
+                                                                                    ? `${formatProcesoCantidad(cantidad)} ${proceso.unidad}`
+                                                                                    : proceso.unidad}
+                                                                            </span>
+                                                                        </span>
+                                                                    </label>
+                                                                    {checked ? (
+                                                                        <div className="reference-concept-fields">
+                                                                            <label>
+                                                                                <span>Base</span>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={itemPrecioInputs[baseKey] ?? formatPrecioInputValue(concepto?.precio_base)}
+                                                                                    onChange={(event) => handleItemPrecioChange(item.id, proceso.key, 'precio_base', event.target.value)}
+                                                                                    onFocus={() => handleItemPrecioFocus(item.id, proceso.key, 'precio_base')}
+                                                                                    onBlur={() => handleItemPrecioBlur(item.id, proceso.key, 'precio_base')}
+                                                                                    disabled={isSavingAll}
+                                                                                />
+                                                                            </label>
+                                                                            <label>
+                                                                                <span>Actual</span>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={itemPrecioInputs[actualKey] ?? formatPrecioInputValue(concepto?.precio_actual)}
+                                                                                    onChange={(event) => handleItemPrecioChange(item.id, proceso.key, 'precio_actual', event.target.value)}
+                                                                                    onFocus={() => handleItemPrecioFocus(item.id, proceso.key, 'precio_actual')}
+                                                                                    onBlur={() => handleItemPrecioBlur(item.id, proceso.key, 'precio_actual')}
+                                                                                    disabled={isSavingAll}
+                                                                                    aria-invalid={missing}
+                                                                                />
+                                                                            </label>
+                                                                            <div className="reference-concept-actions">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary"
+                                                                                    onClick={() => handleCopyBaseToActual(item.id, proceso.key)}
+                                                                                    disabled={isSavingAll || !concepto || concepto.precio_base === null}
+                                                                                >
+                                                                                    Copiar base
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary"
+                                                                                    onClick={() => handleApplyPriceToSimilar(item.id, proceso.key)}
+                                                                                    disabled={isSavingAll || !concepto || concepto.precio_actual === null}
+                                                                                >
+                                                                                    Aplicar similares
+                                                                                </button>
+                                                                            </div>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="reference-concept-disabled">No aplica</div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    <div className="item-reference-details">
+                                                        {item.panos.length > 0 && (
+                                                            <details>
+                                                                <summary>Ver detalle de panos ({panosCount})</summary>
+                                                                <div className="table compact-detail-table">
+                                                                    <table>
+                                                                        <thead>
+                                                                            <tr>
+                                                                                <th>Cantidad</th>
+                                                                                <th>Ancho</th>
+                                                                                <th>Alto</th>
+                                                                                <th>m2</th>
+                                                                                <th>ml</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {item.panos.map((pano: any) => (
+                                                                                <tr key={pano.id}>
+                                                                                    <td>{pano.cantidad}</td>
+                                                                                    <td>{pano.ancho}</td>
+                                                                                    <td>{pano.alto}</td>
+                                                                                    <td>{pano.superficie_m2}</td>
+                                                                                    <td>{pano.perimetro_ml}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </details>
+                                                        )}
+                                                        {item.adicionales && item.adicionales.length > 0 && (
+                                                            <details>
+                                                                <summary>Adicionales / Servicios ({item.adicionales.length})</summary>
+                                                                <div className="table compact-detail-table">
+                                                                    <table>
+                                                                        <thead>
+                                                                            <tr>
+                                                                                <th>Cantidad</th>
+                                                                                <th>Descripcion</th>
+                                                                                <th>Unitario</th>
+                                                                                <th>Total</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {item.adicionales.map((adc: any) => (
+                                                                                <tr key={adc.id}>
+                                                                                    <td>{adc.cantidad}</td>
+                                                                                    <td>{adc.descripcion}</td>
+                                                                                    <td>{formatCurrencyAR(adc.precio_unitario)}</td>
+                                                                                    <td>{formatCurrencyAR(adc.precio_total)}</td>
+                                                                                </tr>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </details>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </Fragment>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
 
     if (loading) {
         return <div className="loading">Cargando detalle...</div>;
@@ -734,6 +1430,9 @@ function DetalleAcopio() {
             </div>
 
 
+            {renderTotalItemsPanel()}
+
+            {false && (
             <div className="form-section">
                 <h3>Total Items ({acopio.items.length})</h3>
                 {itemProcessError && (
@@ -865,6 +1564,7 @@ function DetalleAcopio() {
                     </div>
                 ))}
             </div>
+            )}
 
             {acopio.imputaciones.length > 0 && (
                 <div className="form-section">
@@ -936,10 +1636,10 @@ function DetalleAcopio() {
                         <h3 style={{ margin: 0 }}>Resumen de compensacion</h3>
                         <button 
                             className="btn btn-secondary" 
-                            onClick={() => setShowPreciosModal(true)}
+                            onClick={scrollToTotalItems}
                             style={{ padding: '0.3rem 0.8rem', fontSize: '0.85rem' }}
                         >
-                            Precios de referencia
+                            Precios por item
                         </button>
                     </div>
                     {loadingResumenCompensacion && <span>Actualizando...</span>}
@@ -1045,17 +1745,6 @@ function DetalleAcopio() {
                 )}
             </div>
 
-            {showPreciosModal && (
-                <PreciosReferenciaModal 
-                    acopioId={Number(id)} 
-                    initialPrecios={pendingPrecios}
-                    onClose={() => setShowPreciosModal(false)}
-                    onSave={(data) => {
-                        setPendingPrecios(data);
-                        setHasChanges(true);
-                    }}
-                />
-            )}
         </div>
     );
 }

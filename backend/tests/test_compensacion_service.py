@@ -4,6 +4,7 @@ from decimal import Decimal
 from models import (
     Acopio,
     AcopioItem,
+    AcopioItemPrecioReferencia,
     Imputacion,
     ImputacionProceso,
     Pedido,
@@ -126,6 +127,140 @@ def test_resumen_compensacion_valoriza_diferencias_positivas_y_negativas(db_sess
     assert resumen["totals"]["negativo"] == -200
     assert resumen["totals"]["saldo"] == 50
     assert resumen["warnings"] == []
+
+
+def test_resumen_compensacion_usa_precio_por_item_y_concepto(db_session):
+    acopio = Acopio(
+        numero="COMP-ITEM",
+        fecha_alta=date.today(),
+        total_m2=Decimal("200.00"),
+        total_ml=Decimal("0.00"),
+        total_pesos=Decimal("1000.00"),
+        total_unidades=10,
+        saldo_m2=Decimal("200.00"),
+        saldo_ml=Decimal("0.00"),
+        saldo_pesos=Decimal("1000.00"),
+        saldo_unidades=10,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item_1 = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="Vidrio exterior A",
+        cantidad=5,
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("0.00"),
+        total_pesos=Decimal("500.00"),
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("0.00"),
+        saldo_pesos=Decimal("500.00"),
+        saldo_cantidad=5,
+        proceso_vidrio_exterior=True,
+    )
+    item_2 = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=2,
+        descripcion="Vidrio exterior B",
+        cantidad=5,
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("0.00"),
+        total_pesos=Decimal("500.00"),
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("0.00"),
+        saldo_pesos=Decimal("500.00"),
+        saldo_cantidad=5,
+        proceso_vidrio_exterior=True,
+    )
+    db_session.add_all([item_1, item_2])
+    db_session.flush()
+
+    db_session.add_all([
+        AcopioItemPrecioReferencia(
+            acopio_id=acopio.id,
+            acopio_item_id=item_1.id,
+            concepto="vidrio_exterior",
+            unidad="m2",
+            precio_base=Decimal("10.00"),
+            precio_actual=Decimal("10.00"),
+            habilitado=True,
+            origen="manual",
+        ),
+        AcopioItemPrecioReferencia(
+            acopio_id=acopio.id,
+            acopio_item_id=item_2.id,
+            concepto="vidrio_exterior",
+            unidad="m2",
+            precio_base=Decimal("20.00"),
+            precio_actual=Decimal("20.00"),
+            habilitado=True,
+            origen="manual",
+        ),
+    ])
+
+    pedido = Pedido(
+        numero="23000",
+        fecha=date.today(),
+        total_m2=Decimal("200.00"),
+        total_ml=Decimal("0.00"),
+        total_pesos=Decimal("800.00"),
+    )
+    db_session.add(pedido)
+    db_session.flush()
+
+    db_session.add_all([
+        Imputacion(
+            pedido_id=pedido.id,
+            acopio_id=acopio.id,
+            acopio_item_id=item_1.id,
+            cantidad_m2=Decimal("50.00"),
+            cantidad_ml=Decimal("0.00"),
+            cantidad_pesos=Decimal("200.00"),
+            cantidad_unidades=2,
+        ),
+        Imputacion(
+            pedido_id=pedido.id,
+            acopio_id=acopio.id,
+            acopio_item_id=item_2.id,
+            cantidad_m2=Decimal("150.00"),
+            cantidad_ml=Decimal("0.00"),
+            cantidad_pesos=Decimal("600.00"),
+            cantidad_unidades=8,
+        ),
+    ])
+    db_session.commit()
+
+    resumen = build_resumen_compensacion(db_session, acopio.id)
+    row = {row["proceso"]: row for row in resumen["rows"]}["vidrio_exterior"]
+
+    assert row["cantidad_acopio"] == 200
+    assert row["cantidad_pedidos"] == 200
+    assert row["diferencia"] == 0
+    assert row["importe"] == -500
+    assert resumen["totals"]["saldo"] == -500
+    assert row["items_valorizacion"] == [
+        {
+            "item_id": item_1.id,
+            "descripcion": "Vidrio exterior A",
+            "cantidad_acopio": 100,
+            "cantidad_pedidos": 50,
+            "diferencia": 50,
+            "precio_referencia": 10,
+            "importe": 500,
+            "precio_faltante": False,
+        },
+        {
+            "item_id": item_2.id,
+            "descripcion": "Vidrio exterior B",
+            "cantidad_acopio": 100,
+            "cantidad_pedidos": 150,
+            "diferencia": -50,
+            "precio_referencia": 20,
+            "importe": -1000,
+            "precio_faltante": False,
+        },
+    ]
 
 
 def test_resumen_compensacion_no_duplica_camara_estructural_en_offset(db_session):

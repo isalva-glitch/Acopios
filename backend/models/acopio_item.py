@@ -47,3 +47,4 @@ class AcopioItem(BaseModel):
     panos = relationship("AcopioItemPano", back_populates="item", cascade="all, delete-orphan")
     adicionales = relationship("AcopioItemAdicional", back_populates="item", cascade="all, delete-orphan")
     imputaciones = relationship("Imputacion", back_populates="acopio_item")
+    precios_referencia = relationship("AcopioItemPrecioReferencia", back_populates="item", cascade="all, delete-orphan")

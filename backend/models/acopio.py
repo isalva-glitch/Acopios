@@ -55,3 +55,4 @@ class Acopio(BaseModel):
     imputaciones = relationship("Imputacion", back_populates="acopio", cascade="all, delete-orphan")
     afectaciones = relationship("AfectacionAcopio", back_populates="acopio", cascade="all, delete-orphan")
     precios_referencia = relationship("PrecioReferencia", back_populates="acopio", uselist=False, cascade="all, delete-orphan")
+    items_precios_referencia = relationship("AcopioItemPrecioReferencia", back_populates="acopio", cascade="all, delete-orphan")
