@@ -15,24 +15,57 @@ function DetalleAcopioPaquete() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // New state for adding presupuesto
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [newPresupuesto, setNewPresupuesto] = useState('');
+    const [isAdding, setIsAdding] = useState(false);
+
+    const loadPaquete = async () => {
+        if (!id) return;
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await apiClient.get<AcopioPaqueteDetalle>(`/acopio-paquetes/${id}`);
+            setPaquete(response.data);
+        } catch (err: any) {
+            setError(err.response?.data?.detail || 'Error al cargar el paquete');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const loadPaquete = async () => {
-            if (!id) return;
-
-            setLoading(true);
-            setError(null);
-            try {
-                const response = await apiClient.get<AcopioPaqueteDetalle>(`/acopio-paquetes/${id}`);
-                setPaquete(response.data);
-            } catch (err: any) {
-                setError(err.response?.data?.detail || 'Error al cargar el paquete');
-            } finally {
-                setLoading(false);
-            }
-        };
-
         loadPaquete();
     }, [id]);
+
+    const handleAddPresupuesto = async () => {
+        if (!newPresupuesto.trim() || !id) return;
+        setIsAdding(true);
+        try {
+            const response = await apiClient.post<AcopioPaqueteDetalle>(`/acopio-paquetes/${id}/presupuestos`, {
+                presupuesto: newPresupuesto.trim()
+            });
+            setPaquete(response.data);
+            setShowAddModal(false);
+            setNewPresupuesto('');
+        } catch (err: any) {
+            alert(err.response?.data?.detail || 'Error al agregar presupuesto');
+        } finally {
+            setIsAdding(false);
+        }
+    };
+
+    const handleDeleteAcopio = async (acopioId: number) => {
+        if (!id || !window.confirm('¿Estás seguro de que deseas eliminar este acopio del paquete? Esta acción no se puede deshacer.')) {
+            return;
+        }
+        try {
+            const response = await apiClient.delete<AcopioPaqueteDetalle>(`/acopio-paquetes/${id}/acopios/${acopioId}`);
+            setPaquete(response.data);
+        } catch (err: any) {
+            alert(err.response?.data?.detail || 'Error al eliminar acopio');
+        }
+    };
 
     if (loading) {
         return <div className="loading">Cargando paquete...</div>;
@@ -116,8 +149,13 @@ function DetalleAcopioPaquete() {
 
             <section className="form-section">
                 <div className="section-title-row">
-                    <h3>Acopios hijos</h3>
-                    <span>{paquete.acopios.length} registros</span>
+                    <div>
+                        <h3 style={{ display: 'inline-block', marginRight: '1rem' }}>Acopios hijos</h3>
+                        <span>{paquete.acopios.length} registros</span>
+                    </div>
+                    <button className="btn btn-secondary btn-compact" onClick={() => setShowAddModal(true)}>
+                        + Agregar
+                    </button>
                 </div>
 
                 <div className="table paquetes-hijos-table">
@@ -153,12 +191,22 @@ function DetalleAcopioPaquete() {
                                     <td>{formatNumberAR(acopio.total_ml)}</td>
                                     <td>{acopio.total_unidades}</td>
                                     <td>
-                                        <Link
-                                            to={`/acopios/${acopio.id}`}
-                                            className="btn btn-primary btn-compact"
-                                        >
-                                            Ver acopio
-                                        </Link>
+                                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                            <Link
+                                                to={`/acopios/${acopio.id}`}
+                                                className="btn btn-primary btn-compact"
+                                            >
+                                                Ver
+                                            </Link>
+                                            <button 
+                                                className="btn btn-compact"
+                                                style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}
+                                                onClick={() => handleDeleteAcopio(acopio.id)}
+                                                title="Eliminar acopio"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -166,6 +214,32 @@ function DetalleAcopioPaquete() {
                     </table>
                 </div>
             </section>
+
+            {showAddModal && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: '400px' }}>
+                        <h3>Agregar Presupuesto</h3>
+                        <p>Ingresa el número de presupuesto de SPF para agregarlo a este paquete.</p>
+                        <div className="form-group">
+                            <label>N° Presupuesto SPF</label>
+                            <input 
+                                type="text" 
+                                value={newPresupuesto} 
+                                onChange={e => setNewPresupuesto(e.target.value)}
+                                placeholder="Ej: 000213054"
+                            />
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn btn-secondary" onClick={() => setShowAddModal(false)} disabled={isAdding}>
+                                Cancelar
+                            </button>
+                            <button className="btn btn-primary" onClick={handleAddPresupuesto} disabled={!newPresupuesto.trim() || isAdding}>
+                                {isAdding ? 'Agregando...' : 'Agregar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

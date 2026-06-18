@@ -40,6 +40,10 @@ class AcopioPaqueteCreate(BaseModel):
     pdf_presupuestos: List[Dict[str, Any]] = Field(default_factory=list)
 
 
+class AcopioPaqueteAddPresupuesto(BaseModel):
+    presupuesto: str = Field(..., min_length=1)
+
+
 class AcopioPaqueteUpdate(BaseModel):
     nombre: Optional[str] = None
     cliente: Optional[str] = None

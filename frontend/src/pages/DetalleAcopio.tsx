@@ -1,5 +1,5 @@
 import { Fragment, useState, useEffect } from 'react';
-import { useParams, useBlocker } from 'react-router-dom';
+import { Link, useParams, useBlocker } from 'react-router-dom';
 import apiClient from '../api/client';
 import type {
     AcopioItemsPreciosReferencia,
@@ -1173,6 +1173,14 @@ function DetalleAcopio() {
                     <div className="detalle-general-data">
                         <strong>Cliente:</strong> {avanceComercial?.cliente || acopio.obra?.cliente?.nombre || `SPF ID: ${acopio.cliente_id}`}<br />
                         <strong>Obra:</strong> {avanceComercial?.obra || acopio.obra?.nombre || `Presupuesto: ${acopio.v_presupuesto_id}`}<br />
+                        {acopio.paquete && (
+                            <>
+                                <strong>Paquete de obras:</strong>{' '}
+                                <Link to={`/paquetes/${acopio.paquete.id}`}>
+                                    {acopio.paquete.numero || acopio.paquete.nombre}
+                                </Link><br />
+                            </>
+                        )}
                         <strong>Fecha Alta:</strong> {new Date(acopio.fecha_alta).toLocaleDateString()}<br />
                         <strong>Estado:</strong> {acopio.estado}
                         <div className="detalle-vencimiento-field">

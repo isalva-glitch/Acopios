@@ -104,6 +104,10 @@ class SpfCliente(SpfBase):
     __tablename__ = 'clientes'
     id = Column(Integer, primary_key=True)
     nombre = Column(String(255))
+    apellido = Column(String(255))
+    razon_social = Column(String(255))
+    nombre_corto = Column(String(255))
+    descripcion = Column(String(255))
 
 
 class SpfVComplemento(SpfBase):
@@ -128,7 +132,9 @@ class SpfTangoHeader(SpfBase):
     __tablename__ = 'tango_headers'
     id = Column(Integer, primary_key=True)
     pedido_id = Column(Integer, ForeignKey('pedidos.id'))
-    cliente_id = Column(Integer)
+    cliente_spf_id = Column(Integer)
+    cliente_tango_id = Column(String(50))
+    nombre_empresa = Column(String(255))
     # nro_comprobante, etc.
 
 

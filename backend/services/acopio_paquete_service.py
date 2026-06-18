@@ -48,6 +48,13 @@ def _presupuesto_variants(value: str) -> list[str]:
     return list(variants)
 
 
+def _display_presupuesto(value: str | None) -> Optional[str]:
+    raw_value = _clean_presupuesto(value)
+    if raw_value.isdigit():
+        return str(int(raw_value)).zfill(9)
+    return raw_value or None
+
+
 def _total_unidades_from_details(details: dict) -> int:
     return sum(int(item.get("cantidad") or 0) for item in details.get("items", []))
 
@@ -71,8 +78,8 @@ def _pdf_obra(extraction_package: Dict[str, Any]) -> Optional[str]:
 
 def _acopio_presupuesto(acopio: Acopio) -> Optional[str]:
     if acopio.presupuestos:
-        return acopio.presupuestos[0].numero
-    return acopio.v_presupuesto_id or acopio.numero
+        return _display_presupuesto(acopio.presupuestos[0].numero)
+    return _display_presupuesto(acopio.v_presupuesto_id or acopio.numero)
 
 
 def _acopio_cliente(acopio: Acopio) -> Optional[str]:
@@ -404,6 +411,76 @@ class AcopioPaqueteService:
             paquete.fecha_alta = data["fecha_alta"]
 
         try:
+            cls.recalculate_totals(paquete)
+            db.commit()
+            db.refresh(paquete)
+            return cls.build_detalle(paquete)
+        except Exception:
+            db.rollback()
+            raise
+
+    @classmethod
+    def add_presupuesto(
+        cls,
+        db: Session,
+        spf_db: Session,
+        paquete_id: int,
+        presupuesto: str,
+    ) -> AcopioPaqueteDetalle:
+        paquete = cls._query_paquetes(db).filter(AcopioPaquete.id == paquete_id).first()
+        if not paquete:
+            raise ValueError("Paquete no encontrado")
+
+        presupuesto = _clean_presupuesto(presupuesto)
+        if not presupuesto:
+            raise ValueError("Presupuesto invalido")
+
+        existing = cls._existing_acopio_for_presupuesto(db, presupuesto)
+        if existing:
+            raise ValueError(f"{presupuesto}: Ya existe un acopio para este presupuesto")
+
+        details = spf_services.get_presupuesto_details(spf_db, presupuesto)
+        if not details:
+            raise ValueError(f"{presupuesto}: Presupuesto no encontrado en SPF")
+
+        try:
+            normalized_data = AcopioCreationService.build_from_spf(details)
+            AcopioCreationService.persist_from_normalized_data(
+                db,
+                normalized_data,
+                commit=False,
+                fecha_alta=paquete.fecha_alta,
+                paquete_id=paquete.id,
+            )
+            db.flush()
+            db.refresh(paquete)
+            cls.recalculate_totals(paquete)
+            db.commit()
+            db.refresh(paquete)
+            return cls.build_detalle(paquete)
+        except Exception:
+            db.rollback()
+            raise
+
+    @classmethod
+    def remove_acopio(
+        cls,
+        db: Session,
+        paquete_id: int,
+        acopio_id: int,
+    ) -> AcopioPaqueteDetalle:
+        paquete = cls._query_paquetes(db).filter(AcopioPaquete.id == paquete_id).first()
+        if not paquete:
+            raise ValueError("Paquete no encontrado")
+
+        acopio = next((a for a in paquete.acopios if a.id == acopio_id), None)
+        if not acopio:
+            raise ValueError("El acopio no pertenece a este paquete")
+
+        try:
+            db.delete(acopio)
+            db.flush()
+            db.refresh(paquete)
             cls.recalculate_totals(paquete)
             db.commit()
             db.refresh(paquete)

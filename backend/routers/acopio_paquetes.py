@@ -14,6 +14,7 @@ from schemas.acopio_paquete import (
     AcopioPaquetePreviewRequest,
     AcopioPaquetePreviewResponse,
     AcopioPaqueteUpdate,
+    AcopioPaqueteAddPresupuesto,
 )
 from services.acopio_paquete_service import AcopioPaqueteService
 from storage import save_file
@@ -116,4 +117,43 @@ async def update_acopio_paquete(
 
     if not paquete:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paquete no encontrado")
+    return paquete
+
+
+@router.post("/{paquete_id}/presupuestos", response_model=AcopioPaqueteDetalle)
+async def add_presupuesto_to_paquete(
+    paquete_id: int,
+    payload: AcopioPaqueteAddPresupuesto,
+    db: Session = Depends(get_db),
+    spf_db: Session = Depends(get_spf_db),
+):
+    """Add a new SPF budget to an existing package."""
+    try:
+        paquete = AcopioPaqueteService.add_presupuesto(db, spf_db, paquete_id, payload.presupuesto)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add presupuesto: {str(e)}",
+        )
+    return paquete
+
+
+@router.delete("/{paquete_id}/acopios/{acopio_id}", response_model=AcopioPaqueteDetalle)
+async def remove_acopio_from_paquete(
+    paquete_id: int,
+    acopio_id: int,
+    db: Session = Depends(get_db),
+):
+    """Remove a child acopio from an existing package."""
+    try:
+        paquete = AcopioPaqueteService.remove_acopio(db, paquete_id, acopio_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove acopio: {str(e)}",
+        )
     return paquete

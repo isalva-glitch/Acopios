@@ -1,4 +1,5 @@
 from decimal import Decimal
+import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, union_all, cast, String
 from .models import (
@@ -46,6 +47,32 @@ def _presupuesto_lookup_values(v_presupuesto_id: str):
         text_values.add(str(numeric_value).zfill(9))
 
     return numeric_value, list(text_values)
+
+
+def _normalize_presupuesto_id(value: str | int | None) -> str:
+    raw_value = str(value or "").strip()
+    if raw_value.isdigit():
+        return str(int(raw_value)).zfill(9)
+    return raw_value
+
+
+def _clean_spf_text(value) -> str | None:
+    if value is None:
+        return None
+    cleaned = re.sub(r"\s+", " ", str(value).strip())
+    return cleaned or None
+
+
+def _spf_cliente_display_name(cliente) -> str:
+    if not cliente:
+        return "Desconocido"
+
+    for attr in ("razon_social", "nombre_corto", "apellido", "nombre", "descripcion"):
+        value = _clean_spf_text(getattr(cliente, attr, None))
+        if value:
+            return value
+
+    return "Desconocido"
 
 
 def _empresa_from_talonario(talonario: str | None) -> str | None:
@@ -197,10 +224,13 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
     Get full details and aggregates for a given v_presupuesto_id.
     Calculates m2, ml, and pesos based on items, medidas, and complementos.
     """
-    # Local system uses "000209205" but SPF uses integer 209205. If numeric, strip zeros or parse int.
-    search_id = int(v_presupuesto_id) if v_presupuesto_id.isdigit() else v_presupuesto_id
+    presupuesto_int, presupuesto_texts = _presupuesto_lookup_values(v_presupuesto_id)
+    normalized_presupuesto_id = _normalize_presupuesto_id(v_presupuesto_id)
+    item_filters = [cast(SpfItem.v_presupuesto_id, String).in_(presupuesto_texts)]
+    if presupuesto_int is not None:
+        item_filters.append(SpfItem.v_presupuesto_id == presupuesto_int)
 
-    items = db.query(SpfItem).filter(SpfItem.v_presupuesto_id == search_id).all()
+    items = db.query(SpfItem).filter(or_(*item_filters)).all()
     
     if not items:
         return None
@@ -211,6 +241,7 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
     
     pedidos_set = set()
     cliente_id = None
+    obra_nombre = None
     
     items_out = []
     
@@ -219,6 +250,8 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
             pedidos_set.add(item.pedido.nro_pedido or str(item.pedido.id))
             if cliente_id is None:
                 cliente_id = item.pedido.cliente_id
+            if not obra_nombre and item.pedido.nrooc:
+                obra_nombre = item.pedido.nrooc
                 
         item_qty = 0
         panos_out = []
@@ -276,11 +309,17 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
         total_ml += item_total_ml
         total_pesos += item_total_pesos
 
+    cliente_nombre = "Desconocido"
+    if cliente_id:
+        cliente_db = db.query(SpfCliente).filter(SpfCliente.id == cliente_id).first()
+        if cliente_db:
+            cliente_nombre = _spf_cliente_display_name(cliente_db)
+
     return {
-        "v_presupuesto_id": v_presupuesto_id,
+        "v_presupuesto_id": normalized_presupuesto_id,
         "cliente_id": cliente_id,
-        "cliente_nombre": f"Cliente ID: {cliente_id}" if cliente_id else "Desconocido",
-        "obra_nombre": f"Presupuesto {v_presupuesto_id}",
+        "cliente_nombre": cliente_nombre,
+        "obra_nombre": obra_nombre or f"Presupuesto {normalized_presupuesto_id}",
         "pedidos_relacionados": list(pedidos_set),
         "total_m2": total_m2,
         "total_ml": total_ml,
@@ -348,7 +387,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
     cliente_ids = list(set(p.cliente_id for p in pedidos if p.cliente_id))
     if cliente_ids:
         clientes = db.query(SpfCliente).filter(SpfCliente.id.in_(cliente_ids)).all()
-        cliente_map = {c.id: c.nombre for c in clientes}
+        cliente_map = {c.id: _spf_cliente_display_name(c) for c in clientes}
 
     # 2. Map Complement names
     complement_ids = []
@@ -477,7 +516,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
     global_remit = sum(p["importe_total"] * (p["avance_remitido"] / 100.0) for p_out in pedidos_out for p in p_out["items"])
 
     return {
-        "v_presupuesto_id": v_presupuesto_id,
+        "v_presupuesto_id": _normalize_presupuesto_id(v_presupuesto_id),
         "cliente": pedidos_out[0]["cliente"] if pedidos_out else "Desconocido",
         "obra": (pedidos[0].nrooc or "S/D") if pedidos else "S/D",
         "resumen": {

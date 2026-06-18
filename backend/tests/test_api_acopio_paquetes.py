@@ -156,7 +156,7 @@ def test_create_acopio_paquete_creates_children_and_consolidates(client, db_sess
     assert Decimal(str(data["total_pesos"])) == Decimal("400000.0")
     assert Decimal(str(data["total_m2"])) == Decimal("32.5")
     assert data["total_unidades"] == 10
-    assert [item["presupuesto"] for item in data["acopios"]] == ["1001", "1002"]
+    assert [item["presupuesto"] for item in data["acopios"]] == ["000001001", "000001002"]
     assert [item["obra"] for item in data["acopios"]] == ["Obra A", "Obra B"]
 
     child_ids = [item["id"] for item in data["acopios"]]
@@ -170,10 +170,25 @@ def test_create_acopio_paquete_creates_children_and_consolidates(client, db_sess
     detail_response = client.get(f"/acopio-paquetes/{data['id']}")
     assert detail_response.status_code == 200
     assert len(detail_response.json()["acopios"]) == 2
+    assert [item["presupuesto"] for item in detail_response.json()["acopios"]] == ["000001001", "000001002"]
 
     acopio_response = client.get(f"/acopios/{child_ids[0]}")
     assert acopio_response.status_code == 200
     assert acopio_response.json()["numero"] == "1001"
+    assert acopio_response.json()["v_presupuesto_id"] == "000001001"
+    assert acopio_response.json()["paquete"] == {
+        "id": data["id"],
+        "numero": "PAQ-000001",
+        "nombre": "Paquete Cliente ABC - Obras varias",
+    }
+
+    acopios_response = client.get("/acopios")
+    assert acopios_response.status_code == 200
+    assert acopios_response.json() == []
+
+    acopios_incluyendo_paquete_response = client.get("/acopios", params={"incluir_paquete": True})
+    assert acopios_incluyendo_paquete_response.status_code == 200
+    assert {item["numero"] for item in acopios_incluyendo_paquete_response.json()} == {"1001", "1002"}
 
 
 def test_update_acopio_paquete_only_updates_package_fields(client, db_session, monkeypatch):

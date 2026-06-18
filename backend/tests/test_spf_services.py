@@ -1,8 +1,33 @@
 """Tests for SPF integration services."""
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
-from integrations.spf.services import search_presupuestos, get_presupuesto_details
+from integrations.spf.services import (
+    _normalize_presupuesto_id,
+    _spf_cliente_display_name,
+    search_presupuestos,
+    get_presupuesto_details,
+)
 from integrations.spf.models import SpfPedido, SpfItem, SpfItemMedida, SpfItemComplemento
+
+
+def test_normalize_presupuesto_id_pads_numeric_values():
+    assert _normalize_presupuesto_id("212455") == "000212455"
+    assert _normalize_presupuesto_id("000212455") == "000212455"
+    assert _normalize_presupuesto_id("P123") == "P123"
+
+
+def test_spf_cliente_display_name_prefers_business_name_over_contact_name():
+    cliente = SimpleNamespace(
+        nombre="Lucas",
+        apellido="Open  World  Ow",
+        razon_social="Open  World  Ow",
+        nombre_corto=None,
+        descripcion="CARPINTERO",
+    )
+
+    assert _spf_cliente_display_name(cliente) == "Open World Ow"
+
 
 def test_search_presupuestos_empty_query():
     """Test search early exits on empty query."""
@@ -58,6 +83,5 @@ def test_get_presupuesto_details_aggregates():
     assert "items" in result
     assert result["items"][0]["cantidad"] == 3  # medida1 (2) + medida2 (1)
     assert len(result["items"][0]["panos"]) == 2
-
 
 

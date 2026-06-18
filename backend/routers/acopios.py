@@ -61,6 +61,15 @@ def item_procesos_detalle_to_dict(item: AcopioItem) -> dict:
     return detalle
 
 
+def normalize_presupuesto_id(value: Optional[str]) -> Optional[str]:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    if raw_value.isdigit():
+        return str(int(raw_value)).zfill(9)
+    return raw_value
+
+
 # Pydantic models
 class AcopioPreview(BaseModel):
     """Preview of extraction before confirmation."""
@@ -326,10 +335,14 @@ async def create_acopio_from_spf(
 async def list_acopios(
     obra_id: Optional[int] = None,
     estado: Optional[str] = None,
+    incluir_paquete: bool = False,
     db: Session = Depends(get_db)
 ):
     """List acopios with optional filters."""
     query = db.query(Acopio)
+
+    if not incluir_paquete:
+        query = query.filter(Acopio.paquete_id.is_(None))
     
     if obra_id:
         query = query.filter(Acopio.obra_id == obra_id)
@@ -375,6 +388,8 @@ async def get_acopio_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Acopio not found"
         )
+
+    normalized_v_presupuesto_id = normalize_presupuesto_id(acopio.v_presupuesto_id)
     
     return {
         "id": acopio.id,
@@ -389,7 +404,12 @@ async def get_acopio_detail(
         } if acopio.obra else None,
         "cliente_id": acopio.cliente_id,
         "origen_datos": acopio.origen_datos,
-        "v_presupuesto_id": acopio.v_presupuesto_id,
+        "v_presupuesto_id": normalized_v_presupuesto_id,
+        "paquete": {
+            "id": acopio.paquete.id,
+            "numero": acopio.paquete.numero,
+            "nombre": acopio.paquete.nombre,
+        } if acopio.paquete else None,
         "fecha_alta": acopio.fecha_alta.isoformat() if acopio.fecha_alta else None,
         "fecha_vencimiento": acopio.fecha_vencimiento.isoformat() if acopio.fecha_vencimiento else None,
         "estado": acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
@@ -408,7 +428,7 @@ async def get_acopio_detail(
         "presupuestos": [
             {
                 "id": p.id,
-                "numero": p.numero,
+                "numero": normalize_presupuesto_id(p.numero) or p.numero,
                 "fecha": p.fecha.isoformat() if p.fecha else None
             }
             for p in acopio.presupuestos
