@@ -605,34 +605,41 @@ def _parse_detailed_all_pages(pdf, items: List[PdfItem]):
             target_item = item_map[it_no]
 
             # Agrupar candidatos por "contenido"
-            def _norm_denom(d):
-                """Normalize denominacion: None, '-', '' all become ''."""
-                s = (d or "").strip()
-                return "" if s == "-" else s
-
             def get_key(obj):
                 if isinstance(obj, PdfPane):
-                    return ("PANE", obj.cantidad, obj.ancho_mm, obj.alto_mm, q2(obj.superficie_m2), q2(obj.perimetro_ml), _norm_denom(obj.denominacion), q2(obj.precio_total))
+                    return ("PANE", obj.cantidad, obj.ancho_mm, obj.alto_mm, q2(obj.superficie_m2), q2(obj.perimetro_ml), q2(obj.precio_total))
                 else:
-                    return ("ADIC", obj.cantidad, obj.descripcion.strip(), q2(obj.precio_total))
+                    return ("ADIC", obj.cantidad, " ".join(obj.descripcion.split()).lower(), q2(obj.precio_total))
 
             it_table_objs = [c[1] for c in table_candidates if c[0] == it_no]
             it_text_objs = [c[1] for c in text_candidates if c[0] == it_no]
 
-            table_counts = Counter(get_key(o) for o in it_table_objs)
-            text_counts = Counter(get_key(o) for o in it_text_objs)
+            # Agrupar por la clave normalizada
+            table_by_key = {}
+            for o in it_table_objs:
+                table_by_key.setdefault(get_key(o), []).append(o)
 
-            all_keys = set(table_counts.keys()) | set(text_counts.keys())
+            text_by_key = {}
+            for o in it_text_objs:
+                text_by_key.setdefault(get_key(o), []).append(o)
+
+            all_keys = set(table_by_key.keys()) | set(text_by_key.keys())
 
             rows_added_this_page = 0
             for k in all_keys:
-                count = max(table_counts[k], text_counts[k])
-                # Buscar el objeto original para copiar (preferir el de tabla si existe)
-                sample_obj = next((o for o in it_table_objs if get_key(o) == k), None)
-                if not sample_obj:
-                    sample_obj = next((o for o in it_text_objs if get_key(o) == k), None)
+                t_list = table_by_key.get(k, [])
+                x_list = text_by_key.get(k, [])
+                count = max(len(t_list), len(x_list))
 
-                for _ in range(count):
+                # Preferir el de la tabla para conservar denominación y otros detalles
+                selected_objs = []
+                for i in range(count):
+                    if i < len(t_list):
+                        selected_objs.append(t_list[i])
+                    else:
+                        selected_objs.append(x_list[i - len(t_list)])
+
+                for sample_obj in selected_objs:
                     if isinstance(sample_obj, PdfPane):
                         new_pane = PdfPane(**sample_obj.__dict__)
                         new_pane.row_no = len(target_item.panos) + 1
