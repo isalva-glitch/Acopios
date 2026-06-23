@@ -7,6 +7,7 @@ from database import get_db
 from integrations.spf.database import get_spf_db
 from integrations.pdf import extract_budget_pdf, parsed_budget_to_dict
 from schemas.acopio_paquete import (
+    AcopioPaqueteAddPdf,
     AcopioPaqueteCreate,
     AcopioPaqueteDetalle,
     AcopioPaqueteListItem,
@@ -136,6 +137,25 @@ async def add_presupuesto_to_paquete(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add presupuesto: {str(e)}",
+        )
+    return paquete
+
+
+@router.post("/{paquete_id}/presupuestos-pdf", response_model=AcopioPaqueteDetalle)
+async def add_pdf_presupuesto_to_paquete(
+    paquete_id: int,
+    payload: AcopioPaqueteAddPdf,
+    db: Session = Depends(get_db),
+):
+    """Add a new PDF-based budget to an existing package."""
+    try:
+        paquete = AcopioPaqueteService.add_presupuesto_pdf(db, paquete_id, payload.extraction_package)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add PDF presupuesto: {str(e)}",
         )
     return paquete
 

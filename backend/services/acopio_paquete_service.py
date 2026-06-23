@@ -463,6 +463,48 @@ class AcopioPaqueteService:
             raise
 
     @classmethod
+    def add_presupuesto_pdf(
+        cls,
+        db: Session,
+        paquete_id: int,
+        extraction_package: Dict[str, Any],
+    ) -> AcopioPaqueteDetalle:
+        paquete = cls._query_paquetes(db).filter(AcopioPaquete.id == paquete_id).first()
+        if not paquete:
+            raise ValueError("Paquete no encontrado")
+
+        presupuesto = _pdf_presupuesto_number(extraction_package)
+        if not presupuesto:
+            raise ValueError("El PDF no tiene número de presupuesto")
+
+        existing = cls._existing_acopio_for_presupuesto(db, presupuesto)
+        if existing:
+            raise ValueError(f"{presupuesto}: Ya existe un acopio para este presupuesto")
+
+        preview = cls.preview_pdf_extraction(db, extraction_package)
+        if not preview.valido:
+            raise ValueError(preview.observaciones or "El PDF no es válido")
+
+        try:
+            normalized_data = AcopioCreationService.build_from_pdf(extraction_package)
+            AcopioCreationService.persist_from_normalized_data(
+                db,
+                normalized_data,
+                commit=False,
+                fecha_alta=paquete.fecha_alta,
+                paquete_id=paquete.id,
+            )
+            db.flush()
+            db.refresh(paquete)
+            cls.recalculate_totals(paquete)
+            db.commit()
+            db.refresh(paquete)
+            return cls.build_detalle(paquete)
+        except Exception:
+            db.rollback()
+            raise
+
+    @classmethod
     def remove_acopio(
         cls,
         db: Session,

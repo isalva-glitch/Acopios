@@ -103,6 +103,8 @@ Acopios/
 - `GET /acopio-paquetes` - Listar paquetes con totales consolidados
 - `GET /acopio-paquetes/{id}` - Detalle de paquete con acopios hijos
 - `PATCH /acopio-paquetes/{id}` - Actualizar datos generales del paquete sin modificar acopios hijos
+- `POST /acopio-paquetes/{id}/presupuestos-pdf` - Agregar un acopio desde PDF a un paquete existente
+
 
 ### Pedidos
 - `POST /pedidos/upload-pdf` - Subir PDF de pedido
@@ -133,11 +135,11 @@ La ruta `/reportes` se presenta como **Informes**, un tablero operativo con grá
 
 ## UX: Acopio x Paquete de Obras
 
-La ruta `/paquetes` lista paquetes de obras y consolida los totales de sus acopios hijos. La ruta `/paquetes/nuevo` permite ingresar varios presupuestos SPF, cargar PDFs de presupuestos que no existan en SPF, previsualizar las fuentes y crear un paquete con un acopio individual por presupuesto. La ruta `/paquetes/:id` muestra el resumen general y permite entrar al detalle normal de cada acopio hijo.
+La ruta `/paquetes` lista paquetes de obras y consolida los totales de sus acopios hijos. La ruta `/paquetes/nuevo` permite ingresar varios presupuestos SPF, cargar PDFs de presupuestos que no existan en SPF, previsualizar las fuentes y crear un paquete con un acopio individual por presupuesto. La ruta `/paquetes/:id` muestra el resumen general, permite agregar nuevos presupuestos (desde SPF o PDF) y entrar al detalle normal de cada acopio hijo.
 
 - El paquete es una entidad agrupadora en `acopio_paquetes`.
 - Cada presupuesto SPF genera un `Acopio` normal, con items, saldos, imputaciones operativas, pedidos y precios de referencia existentes.
-- Cada PDF cargado en el alta de paquete reutiliza el extractor de acopios tradicionales y genera un `Acopio` normal con `origen_datos = pdf_upload`.
+- Cada PDF cargado en el alta de paquete o desde el detalle del paquete reutiliza el extractor de acopios tradicionales y genera un `Acopio` normal con `origen_datos = pdf_upload`.
 - `acopios.paquete_id` es nullable: los acopios tradicionales siguen funcionando sin paquete.
 - Los totales del paquete se calculan a partir de los acopios hijos.
 - El preview valida presupuestos repetidos, inexistentes, duplicados entre SPF/PDF o ya cargados como acopio.

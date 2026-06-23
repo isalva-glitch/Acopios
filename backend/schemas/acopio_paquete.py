@@ -44,6 +44,10 @@ class AcopioPaqueteAddPresupuesto(BaseModel):
     presupuesto: str = Field(..., min_length=1)
 
 
+class AcopioPaqueteAddPdf(BaseModel):
+    extraction_package: Dict[str, Any]
+
+
 class AcopioPaqueteUpdate(BaseModel):
     nombre: Optional[str] = None
     cliente: Optional[str] = None
