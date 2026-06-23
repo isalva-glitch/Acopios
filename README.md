@@ -326,6 +326,15 @@ Cada proceso toma la cantidad física correspondiente del item:
 - Opacificado Total: m2
 - Cámara Offset: ml
 
+## Diferenciación de Excedentes
+
+Al imputar consumos contra un acopio, el sistema valida el consumo tanto contra el saldo global del acopio como contra el saldo individual del ítem asignado. Para dar mayor claridad al usuario sobre el origen del sobreconsumo, la plataforma diferencia tres estados a nivel de base de datos y UI:
+- `ACOPIO`: Cuando el pedido supera el saldo total disponible del acopio. Visualizado como `⚠ Excedente acopio`.
+- `ITEM`: Cuando el pedido entra dentro del presupuesto global del acopio, pero consume más de lo contratado para esa línea particular. Visualizado como `⚠ Excedente ítem`.
+- `COMPOSICION`: Usado para advertencias de fallas en el matching de tipologías.
+
+Las políticas de negocio (`BLOCK`, `WARN`) se aplican uniformemente tanto para excedentes globales como de ítem, pero la división visual permite al usuario de negocio identificar si el desvío requiere renegociar el acopio entero o si es un simple desplazamiento de material entre ítems.
+
 ## JSON Schema
 
 El sistema usa JSON Schema draft 2020-12 para validar la salida del extractor de PDFs antes de persistir en base de datos.

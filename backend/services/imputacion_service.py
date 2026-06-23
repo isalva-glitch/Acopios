@@ -23,7 +23,7 @@ def check_excedente(
     cantidad_ml: Decimal,
     cantidad_pesos: Decimal,
     cantidad_unidades: int
-) -> Tuple[bool, Optional[str]]:
+) -> Tuple[bool, str, Optional[str]]:
     """
     Check if imputacion would create excedente.
     
@@ -37,6 +37,7 @@ def check_excedente(
     
     # Check against acopio saldos
     is_excedente = False
+    excedente_tipo = "NONE"
     warnings = []
     
     if cantidad_m2 > acopio.saldo_m2:
@@ -55,26 +56,35 @@ def check_excedente(
         is_excedente = True
         warnings.append(f"unidades: consumo {cantidad_unidades} excede saldo {acopio.saldo_unidades}")
     
+    if is_excedente:
+        excedente_tipo = "ACOPIO"
+        
     # If item specified, also check item saldos
     if acopio_item_id:
         item = db.query(AcopioItem).filter(AcopioItem.id == acopio_item_id).first()
         if item:
+            item_excedente = False
             if cantidad_m2 > item.saldo_m2:
-                is_excedente = True
+                item_excedente = True
                 warnings.append(f"Item {item.descripcion}: m2 excede saldo")
             if cantidad_ml > item.saldo_ml:
-                is_excedente = True
+                item_excedente = True
                 warnings.append(f"Item {item.descripcion}: ml excede saldo")
             if cantidad_pesos > item.saldo_pesos:
-                is_excedente = True
+                item_excedente = True
                 warnings.append(f"Item {item.descripcion}: pesos excede saldo")
             if cantidad_unidades > item.saldo_cantidad:
-                is_excedente = True
+                item_excedente = True
                 warnings.append(f"Item {item.descripcion}: unidades excede saldo")
+            
+            if item_excedente:
+                is_excedente = True
+                if excedente_tipo == "NONE":
+                    excedente_tipo = "ITEM"
     
     warning_msg = "; ".join(warnings) if warnings else None
     
-    return is_excedente, warning_msg
+    return is_excedente, excedente_tipo, warning_msg
 
 
 def imputar_consumo(
@@ -103,7 +113,7 @@ def imputar_consumo(
         ValueError if BLOCK policy and excedente detected
     """
     # Check for excedente
-    is_excedente, warning = check_excedente(
+    is_excedente, excedente_tipo, warning = check_excedente(
         db, acopio_id, acopio_item_id, cantidad_m2, cantidad_ml, cantidad_pesos, cantidad_unidades
     )
     
@@ -123,6 +133,8 @@ def imputar_consumo(
         cantidad_pesos=cantidad_pesos,
         cantidad_unidades=cantidad_unidades,
         es_excedente=is_excedente,
+        excedente_tipo=excedente_tipo if is_excedente else "NONE",
+        excedente_motivo=warning if is_excedente else None,
         pedido_item_descripcion=pedido_item_descripcion,
         composicion_normalizada=composicion_normalizada,
         composicion_match_estado=composicion_match_estado,
@@ -184,6 +196,8 @@ def imputar_consumos(
 
     warnings: list[str] = []
     excedente_flags: list[bool] = []
+    excedente_tipos: list[str] = []
+    excedente_motivos: list[str] = []
 
     def to_decimal(value) -> Decimal:
         return value if isinstance(value, Decimal) else Decimal(str(value or 0))
@@ -199,13 +213,22 @@ def imputar_consumos(
         bucket["pesos"] += to_decimal(consumo["cantidad_pesos"])
         bucket["unidades"] += int(consumo["cantidad_unidades"] or 0)
 
-    def mark_excedente(indices: list[int], message: str) -> None:
+    def mark_excedente(indices: list[int], message: str, tipo: str) -> None:
         for index in indices:
             excedente_flags[index] = True
+            if excedente_tipos[index] == "NONE" or (excedente_tipos[index] == "ITEM" and tipo == "ACOPIO"):
+                excedente_tipos[index] = tipo
+            
+            # Append reason
+            current_motivos = excedente_motivos[index].split("; ") if excedente_motivos[index] else []
+            if message not in current_motivos:
+                current_motivos.append(message)
+                excedente_motivos[index] = "; ".join(current_motivos)
+                
         add_warning(message)
 
     for consumo in consumos:
-        is_excedente, warning = check_excedente(
+        is_excedente, excedente_tipo, warning = check_excedente(
             db,
             consumo["acopio_id"],
             consumo.get("acopio_item_id"),
@@ -215,6 +238,8 @@ def imputar_consumos(
             consumo["cantidad_unidades"],
         )
         excedente_flags.append(is_excedente)
+        excedente_tipos.append(excedente_tipo if is_excedente else "NONE")
+        excedente_motivos.append(warning if is_excedente else "")
         add_warning(warning)
 
     totals_by_acopio: dict[int, dict] = {}
@@ -243,21 +268,25 @@ def imputar_consumos(
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado m2 {bucket['m2']} excede saldo {acopio.saldo_m2}",
+                "ACOPIO"
             )
         if bucket["ml"] > to_decimal(acopio.saldo_ml):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado ml {bucket['ml']} excede saldo {acopio.saldo_ml}",
+                "ACOPIO"
             )
         if bucket["pesos"] > to_decimal(acopio.saldo_pesos):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado pesos {bucket['pesos']} excede saldo {acopio.saldo_pesos}",
+                "ACOPIO"
             )
         if bucket["unidades"] > int(acopio.saldo_unidades or 0):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado unidades {bucket['unidades']} excede saldo {acopio.saldo_unidades}",
+                "ACOPIO"
             )
 
     for item_id, bucket in totals_by_item.items():
@@ -270,21 +299,25 @@ def imputar_consumos(
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado m2 {bucket['m2']} excede saldo {item.saldo_m2}",
+                "ITEM"
             )
         if bucket["ml"] > to_decimal(item.saldo_ml):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado ml {bucket['ml']} excede saldo {item.saldo_ml}",
+                "ITEM"
             )
         if bucket["pesos"] > to_decimal(item.saldo_pesos):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado pesos {bucket['pesos']} excede saldo {item.saldo_pesos}",
+                "ITEM"
             )
         if bucket["unidades"] > int(item.saldo_cantidad or 0):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado unidades {bucket['unidades']} excede saldo {item.saldo_cantidad}",
+                "ITEM"
             )
 
     policy = settings.excedente_policy
@@ -292,7 +325,8 @@ def imputar_consumos(
         raise ValueError(f"Imputacion bloqueada por excedente: {'; '.join(warnings)}")
 
     imputaciones: list[Imputacion] = []
-    for consumo, is_excedente in zip(consumos, excedente_flags):
+    for i, consumo in enumerate(consumos):
+        is_excedente = excedente_flags[i]
         imputacion = Imputacion(
             pedido_id=consumo["pedido_id"],
             acopio_id=consumo["acopio_id"],
@@ -302,6 +336,8 @@ def imputar_consumos(
             cantidad_pesos=consumo["cantidad_pesos"],
             cantidad_unidades=consumo["cantidad_unidades"],
             es_excedente=is_excedente,
+            excedente_tipo=excedente_tipos[i],
+            excedente_motivo=excedente_motivos[i] if is_excedente and excedente_motivos[i] else None,
             pedido_item_descripcion=consumo.get("pedido_item_descripcion"),
             composicion_normalizada=consumo.get("composicion_normalizada"),
             composicion_match_estado=consumo.get("composicion_match_estado"),

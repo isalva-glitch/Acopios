@@ -490,6 +490,8 @@ async def get_acopio_detail(
                 "cantidad_pesos": float(imp.cantidad_pesos or 0),
                 "cantidad_unidades": imp.cantidad_unidades or 0,
                 "es_excedente": imp.es_excedente or False,
+                "excedente_tipo": imp.excedente_tipo,
+                "excedente_motivo": imp.excedente_motivo,
                 "fecha": imp.pedido.fecha.isoformat() if imp.pedido and imp.pedido.fecha else None,
                 "acopio_item_id": imp.acopio_item_id,
                 "pedido_item_descripcion": imp.pedido_item_descripcion,

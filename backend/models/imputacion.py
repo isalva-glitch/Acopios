@@ -18,6 +18,8 @@ class Imputacion(BaseModel):
     
     # Control de excedente
     es_excedente = Column(Boolean, default=False, nullable=False)
+    excedente_tipo = Column(String(50), nullable=True)
+    excedente_motivo = Column(String(1200), nullable=True)
 
     # Control de composicion
     pedido_item_descripcion = Column(String(500), nullable=True)

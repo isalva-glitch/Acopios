@@ -35,7 +35,7 @@ def test_excedente_detection(db_session):
     db_session.flush()
     
     # Check excedente when consuming more than available
-    is_excedente, warning = check_excedente(
+    is_excedente, excedente_tipo, warning = check_excedente(
         db_session,
         acopio.id,
         None,
