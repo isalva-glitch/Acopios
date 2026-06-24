@@ -94,6 +94,7 @@ function DetalleAcopio() {
     const [originalAcopio, setOriginalAcopio] = useState<any>(null);
     const [itemsPreciosReferencia, setItemsPreciosReferencia] = useState<AcopioItemsPreciosReferencia | null>(null);
     const [itemPrecioInputs, setItemPrecioInputs] = useState<Record<string, string>>({});
+    const [itemsPreciosDirty, setItemsPreciosDirty] = useState(false);
     const [expandedPriceItems, setExpandedPriceItems] = useState<Record<number, boolean>>({});
     const [hasChanges, setHasChanges] = useState(false);
     const [isSavingAll, setIsSavingAll] = useState(false);
@@ -146,6 +147,7 @@ function DetalleAcopio() {
         setLoading(true);
         setError(null);
         setHasChanges(false);
+        setItemsPreciosDirty(false);
         setFechaVencimientoError(null);
 
         try {
@@ -359,6 +361,7 @@ function DetalleAcopio() {
             if (!prev) return prev;
             const next = updater(prev);
             setItemPrecioInputs(buildItemPrecioInputs(next));
+            setItemsPreciosDirty(true);
             return next;
         });
     };
@@ -464,6 +467,7 @@ function DetalleAcopio() {
         concepto: string,
         updater: (concepto: ConceptoPrecioReferencia) => ConceptoPrecioReferencia
     ) => {
+        setItemsPreciosDirty(true);
         setItemsPreciosReferencia((prev) => {
             if (!prev) return prev;
 
@@ -584,6 +588,7 @@ function DetalleAcopio() {
             setItemPrecioInputs(buildItemPrecioInputs(next));
             return next;
         });
+        setItemsPreciosDirty(true);
         setHasChanges(true);
     };
 
@@ -658,6 +663,7 @@ function DetalleAcopio() {
             setItemPrecioInputs(buildItemPrecioInputs(next));
             return next;
         });
+        setItemsPreciosDirty(true);
         setHasChanges(true);
     };
 
@@ -735,49 +741,54 @@ function DetalleAcopio() {
             throw new Error('La fecha de vencimiento del acopio es obligatoria.');
         }
 
+        const fechaVencimientoChanged = fechaVencimiento !== originalAcopio?.fecha_vencimiento;
+        const changedItemProcesses: Array<{ itemId: number; payload: any }> = [];
+        for (const item of acopio.items) {
+            const originalItem = originalAcopio.items.find((oi: any) => oi.id === item.id);
+            if (!originalItem) continue;
+
+            const changedProcesses: any = {};
+            let hasItemChanges = false;
+            for (const key of Object.keys(item.procesos)) {
+                if (item.procesos[key] !== originalItem.procesos[key]) {
+                    changedProcesses[key] = item.procesos[key];
+                    hasItemChanges = true;
+                }
+            }
+
+            if (hasItemChanges) {
+                changedItemProcesses.push({ itemId: item.id, payload: changedProcesses });
+            }
+        }
+
         let confirmarPrecioCero = false;
-        try {
-            confirmarPrecioCero = validateItemsPreciosBeforeSave();
-        } catch (err: any) {
-            setItemProcessError(err.message || 'Revise los precios de referencia por item.');
-            throw err;
+        if (itemsPreciosDirty) {
+            try {
+                confirmarPrecioCero = validateItemsPreciosBeforeSave();
+            } catch (err: any) {
+                setItemProcessError(err.message || 'Revise los precios de referencia por item.');
+                throw err;
+            }
         }
 
         setIsSavingAll(true);
         setItemProcessError(null);
         try {
             // 1. Guardar fecha de vencimiento del acopio
-            if (fechaVencimiento !== originalAcopio?.fecha_vencimiento) {
+            if (fechaVencimientoChanged) {
                 await apiClient.patch(`/acopios/${id}`, {
                     fecha_vencimiento: fechaVencimiento
                 });
             }
 
             // 2. Guardar cambios en procesos de items modificados
-            const savePromises = [];
-            for (const item of acopio.items) {
-                const originalItem = originalAcopio.items.find((oi: any) => oi.id === item.id);
-                if (!originalItem) continue;
-
-                const changedProcesses: any = {};
-                let hasItemChanges = false;
-                for (const key of Object.keys(item.procesos)) {
-                    if (item.procesos[key] !== originalItem.procesos[key]) {
-                        changedProcesses[key] = item.procesos[key];
-                        hasItemChanges = true;
-                    }
-                }
-
-                if (hasItemChanges) {
-                    savePromises.push(
-                        apiClient.patch(`/acopios/${id}/items/${item.id}/procesos`, changedProcesses)
-                    );
-                }
-            }
+            const savePromises = changedItemProcesses.map(({ itemId, payload }) =>
+                apiClient.patch(`/acopios/${id}/items/${itemId}/procesos`, payload)
+            );
             await Promise.all(savePromises);
 
             // 3. Guardar precios de referencia por item
-            if (itemsPreciosReferencia) {
+            if (itemsPreciosDirty && itemsPreciosReferencia) {
                 await apiClient.put(
                     `/acopios/${id}/items-precios-referencia`,
                     buildItemsPreciosPayload(confirmarPrecioCero)

@@ -26,6 +26,7 @@ from services.proceso_inference import (
     PROCESS_UNITS,
 )
 from services.compensacion_service import build_resumen_compensacion
+from services.imputacion_service import recalculate_excedentes_for_acopio
 from services.item_precios_referencia_service import (
     build_items_reference_prices_matrix,
     ensure_acopio_item_reference_prices,
@@ -388,6 +389,10 @@ async def get_acopio_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Acopio not found"
         )
+
+    if acopio.imputaciones:
+        recalculate_excedentes_for_acopio(db, acopio_id)
+        db.refresh(acopio)
 
     normalized_v_presupuesto_id = normalize_presupuesto_id(acopio.v_presupuesto_id)
     

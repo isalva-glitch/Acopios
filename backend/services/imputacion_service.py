@@ -22,6 +22,15 @@ def _money(value) -> Decimal:
     return _to_decimal(value).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
+def _empty_bucket() -> dict:
+    return {"m2": Decimal("0"), "ml": Decimal("0"), "pesos": Decimal("0"), "unidades": 0}
+
+
+def _append_excedente_message(messages: list[str], message: str) -> None:
+    if message not in messages:
+        messages.append(message)
+
+
 class ExcedentePolicy:
     """Excedente handling policies."""
     BLOCK = "BLOCK"
@@ -391,6 +400,113 @@ def imputar_consumos(
 
     return_warnings = warnings if (any(excedente_flags) and policy == ExcedentePolicy.WARN) else []
     return imputaciones, return_warnings
+
+
+def recalculate_excedentes_for_acopios(db: Session, acopio_ids: Iterable[int]) -> int:
+    changed = 0
+    for acopio_id in sorted({int(current) for current in acopio_ids if current}):
+        changed += recalculate_excedentes_for_acopio(db, acopio_id)
+    return changed
+
+
+def recalculate_excedentes_for_acopio(db: Session, acopio_id: int) -> int:
+    """
+    Recompute persisted excedente flags from contracted totals.
+
+    Historical rows can keep stale excedente flags after a precision-rule fix.
+    This rebuilds cumulative consumption in imputacion order instead of
+    comparing each row against current remaining saldo.
+    """
+    acopio = db.query(Acopio).filter(Acopio.id == acopio_id).first()
+    if not acopio:
+        return 0
+
+    items_by_id = {item.id: item for item in acopio.items}
+    acopio_bucket = _empty_bucket()
+    item_buckets: dict[int, dict] = {}
+    changed = 0
+
+    imputaciones = sorted(
+        acopio.imputaciones,
+        key=lambda imp: (
+            imp.created_at is None,
+            imp.created_at,
+            imp.id or 0,
+        ),
+    )
+
+    for imputacion in imputaciones:
+        messages: list[str] = []
+        excedente_tipo = "NONE"
+
+        acopio_bucket["m2"] += _to_decimal(imputacion.cantidad_m2)
+        acopio_bucket["ml"] += _to_decimal(imputacion.cantidad_ml)
+        acopio_bucket["pesos"] += _to_decimal(imputacion.cantidad_pesos)
+        acopio_bucket["unidades"] += int(imputacion.cantidad_unidades or 0)
+
+        if acopio_bucket["m2"] > _to_decimal(acopio.total_m2):
+            _append_excedente_message(
+                messages,
+                f"Acopio {acopio_id}: consumo acumulado m2 {acopio_bucket['m2']} excede total {acopio.total_m2}",
+            )
+        if acopio_bucket["ml"] > _to_decimal(acopio.total_ml):
+            _append_excedente_message(
+                messages,
+                f"Acopio {acopio_id}: consumo acumulado ml {acopio_bucket['ml']} excede total {acopio.total_ml}",
+            )
+        if _money(acopio_bucket["pesos"]) > _money(acopio.total_pesos):
+            _append_excedente_message(
+                messages,
+                f"Acopio {acopio_id}: consumo acumulado pesos {acopio_bucket['pesos']} excede total {acopio.total_pesos}",
+            )
+        if acopio_bucket["unidades"] > int(acopio.total_unidades or 0):
+            _append_excedente_message(
+                messages,
+                f"Acopio {acopio_id}: consumo acumulado unidades {acopio_bucket['unidades']} excede total {acopio.total_unidades}",
+            )
+
+        if messages:
+            excedente_tipo = "ACOPIO"
+
+        item = items_by_id.get(imputacion.acopio_item_id)
+        if item:
+            item_bucket = item_buckets.setdefault(item.id, _empty_bucket())
+            item_bucket["m2"] += _to_decimal(imputacion.cantidad_m2)
+            item_bucket["ml"] += _to_decimal(imputacion.cantidad_ml)
+            item_bucket["pesos"] += _to_decimal(imputacion.cantidad_pesos)
+            item_bucket["unidades"] += int(imputacion.cantidad_unidades or 0)
+
+            item_messages_before = len(messages)
+            item_label = item.descripcion or item.id
+            if item_bucket["m2"] > _to_decimal(item.total_m2):
+                _append_excedente_message(messages, f"Item {item_label}: m2 excede total")
+            if item_bucket["ml"] > _to_decimal(item.total_ml):
+                _append_excedente_message(messages, f"Item {item_label}: ml excede total")
+            if _money(item_bucket["pesos"]) > _money(item.total_pesos):
+                _append_excedente_message(messages, f"Item {item_label}: pesos excede total")
+            if item_bucket["unidades"] > int(item.cantidad or 0):
+                _append_excedente_message(messages, f"Item {item_label}: unidades excede total")
+
+            if len(messages) > item_messages_before and excedente_tipo == "NONE":
+                excedente_tipo = "ITEM"
+
+        es_excedente = bool(messages)
+        excedente_motivo = "; ".join(messages) if messages else None
+
+        if (
+            bool(imputacion.es_excedente) != es_excedente
+            or (imputacion.excedente_tipo or "NONE") != excedente_tipo
+            or imputacion.excedente_motivo != excedente_motivo
+        ):
+            imputacion.es_excedente = es_excedente
+            imputacion.excedente_tipo = excedente_tipo
+            imputacion.excedente_motivo = excedente_motivo
+            changed += 1
+
+    if changed:
+        db.commit()
+
+    return changed
 
 
 def anular_imputacion(db: Session, imputacion_id: int) -> dict:

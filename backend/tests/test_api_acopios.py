@@ -3,7 +3,7 @@ import pytest
 from datetime import date
 from decimal import Decimal
 
-from models import Acopio, AcopioItem, PrecioReferencia
+from models import Acopio, AcopioItem, Cliente, Imputacion, Obra, Pedido, PrecioReferencia
 
 
 def test_health_check(client):
@@ -162,6 +162,119 @@ def test_update_acopio_fecha_vencimiento(client, db_session):
     detail_response = client.get(f"/acopios/{acopio_id}")
     assert detail_response.status_code == 200
     assert detail_response.json()["fecha_vencimiento"] == "2026-12-31"
+
+
+def _create_stale_precision_excedente(db_session):
+    cliente = Cliente(nombre="Cliente Precision")
+    db_session.add(cliente)
+    db_session.flush()
+
+    obra = Obra(nombre="Obra Precision", cliente_id=cliente.id)
+    db_session.add(obra)
+    db_session.flush()
+
+    acopio = Acopio(
+        numero="PRECISION-EXC",
+        obra_id=obra.id,
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("16.62"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+        total_unidades=19,
+        saldo_m2=Decimal("0.01"),
+        saldo_ml=Decimal("0.00"),
+        saldo_pesos=Decimal("0.00"),
+        saldo_unidades=0,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="Laminado 4+4 Gris Claro con Borde Pulido",
+        cantidad=19,
+        total_m2=Decimal("16.62"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+        saldo_m2=Decimal("0.01"),
+        saldo_ml=Decimal("0.00"),
+        saldo_pesos=Decimal("0.00"),
+        saldo_cantidad=0,
+    )
+    pedido = Pedido(
+        numero="23365",
+        obra_id=obra.id,
+        fecha=date(2024, 6, 23),
+        total_m2=Decimal("16.61"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+    )
+    db_session.add_all([item, pedido])
+    db_session.flush()
+
+    imputacion = Imputacion(
+        pedido_id=pedido.id,
+        acopio_id=acopio.id,
+        acopio_item_id=item.id,
+        cantidad_m2=Decimal("16.61"),
+        cantidad_ml=Decimal("73.41"),
+        cantidad_pesos=Decimal("1128417.90"),
+        cantidad_unidades=19,
+        es_excedente=True,
+        excedente_tipo="ITEM",
+        excedente_motivo="Item viejo: consumo acumulado pesos 1128417.9000000001 excede saldo 1128417.90",
+    )
+    db_session.add(imputacion)
+    db_session.commit()
+
+    return acopio, pedido, imputacion
+
+
+def test_get_acopio_detail_recalculates_stale_money_precision_excedente(client, db_session):
+    acopio, _pedido, imputacion = _create_stale_precision_excedente(db_session)
+
+    response = client.get(f"/acopios/{acopio.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["imputaciones"][0]["es_excedente"] is False
+    assert data["imputaciones"][0]["excedente_tipo"] == "NONE"
+    assert data["imputaciones"][0]["excedente_motivo"] is None
+
+    db_session.refresh(imputacion)
+    assert imputacion.es_excedente is False
+    assert imputacion.excedente_tipo == "NONE"
+    assert imputacion.excedente_motivo is None
+
+
+def test_excedentes_report_recalculates_stale_money_precision_flags(client, db_session):
+    _acopio, _pedido, imputacion = _create_stale_precision_excedente(db_session)
+
+    response = client.get("/reportes/excedentes")
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+    db_session.refresh(imputacion)
+    assert imputacion.es_excedente is False
+    assert imputacion.excedente_tipo == "NONE"
+    assert imputacion.excedente_motivo is None
+
+
+def test_pedido_detail_recalculates_stale_money_precision_flags(client, db_session):
+    _acopio, pedido, imputacion = _create_stale_precision_excedente(db_session)
+
+    response = client.get(f"/pedidos/{pedido.id}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["imputaciones"][0]["es_excedente"] is False
+
+    db_session.refresh(imputacion)
+    assert imputacion.es_excedente is False
+    assert imputacion.excedente_tipo == "NONE"
+    assert imputacion.excedente_motivo is None
 
 
 def _create_reference_price_acopio(db_session):

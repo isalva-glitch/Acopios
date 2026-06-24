@@ -9,6 +9,7 @@ import io
 
 from database import get_db
 from models import Acopio, Imputacion, EstadoAcopio
+from services.imputacion_service import recalculate_excedentes_for_acopios
 
 router = APIRouter()
 
@@ -58,6 +59,14 @@ async def excedentes(
     
     format: json or csv
     """
+    acopio_ids = [
+        row[0]
+        for row in db.query(Imputacion.acopio_id)
+        .distinct()
+        .all()
+    ]
+    recalculate_excedentes_for_acopios(db, acopio_ids)
+
     imputaciones = db.query(Imputacion).filter(
         Imputacion.es_excedente == True
     ).all()

@@ -169,6 +169,13 @@ async def get_pedido_detail(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Pedido not found"
         )
+
+    if pedido.imputaciones:
+        imputacion_service.recalculate_excedentes_for_acopios(
+            db,
+            [imp.acopio_id for imp in pedido.imputaciones],
+        )
+        db.refresh(pedido)
     
     return {
         "id": pedido.id,

@@ -154,7 +154,17 @@ El detalle `/acopios/:id` muestra en **Información General** un campo manual de
 - El campo se persiste en la tabla `acopios` mediante la migración `20260602_1000_c7a4d8e9f012_add_acopio_fecha_vencimiento`.
 - La API devuelve `fecha_vencimiento` en listados y detalle, y permite actualizarla con `PATCH /acopios/{id}`.
 - En la UI el ingreso es obligatorio: si la fecha queda vacía, se muestra un error y se bloquea el guardado de cambios.
+- El guardado de `fecha_vencimiento` es independiente de la matriz de precios de referencia: si el usuario solo cambia la fecha, no se validan ni guardan precios faltantes.
 - La columna de base de datos admite valores nulos para no inventar fechas en acopios existentes; la obligatoriedad se aplica al flujo manual del detalle.
+
+## Control de Excedentes
+
+Las imputaciones nuevas y los datos históricos comparten la misma regla monetaria:
+
+- Los importes se comparan con `Decimal` cuantizado a 2 decimales para evitar falsos positivos por ruido binario, por ejemplo `1128417.9000000001` contra `1128417.90`.
+- Los cálculos SPF acumulan m², ml e importes con `Decimal` y convierten a `float` recién al borde JSON.
+- Las marcas históricas de `imputaciones.es_excedente` se recalculan desde los totales contratados del acopio/item antes de responder `GET /acopios/{id}`, `GET /pedidos/{id}` y `GET /reportes/excedentes`.
+- El reporte de excedentes no lista una imputación marcada por una regla vieja si el recálculo actual determina que no hay excedente real.
 
 ## UX: Ancho de Acopios
 
