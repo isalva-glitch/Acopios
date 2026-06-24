@@ -36,6 +36,10 @@ def _to_decimal(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _to_float(value) -> float:
+    return float(_to_decimal(value))
+
+
 def _presupuesto_lookup_values(v_presupuesto_id: str):
     raw_value = str(v_presupuesto_id or "").strip()
     text_values = {raw_value}
@@ -156,7 +160,7 @@ def summarize_spf_items_processes(db: Session, items):
         {
             "proceso": field,
             "unidad": PROCESS_UNITS[field],
-            "cantidad": float(totals[field]),
+            "cantidad": _to_float(totals[field]),
         }
         for field in PROCESS_FIELDS
         if totals[field] != 0
@@ -189,7 +193,7 @@ def summarize_spf_item_processes(db: Session, item, complement_names=None):
         procesos.append({
             "proceso": field,
             "unidad": PROCESS_UNITS[field],
-            "cantidad": float(cantidad),
+            "cantidad": _to_float(cantidad),
         })
 
     return procesos, composicion
@@ -235,9 +239,9 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
     if not items:
         return None
 
-    total_m2 = 0.0
-    total_ml = 0.0
-    total_pesos = 0.0
+    total_m2 = Decimal("0")
+    total_ml = Decimal("0")
+    total_pesos = Decimal("0")
     
     pedidos_set = set()
     cliente_id = None
@@ -255,17 +259,17 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
                 
         item_qty = 0
         panos_out = []
-        item_total_m2 = 0.0
-        item_total_ml = 0.0
-        item_total_pesos = 0.0
+        item_total_m2 = Decimal("0")
+        item_total_ml = Decimal("0")
+        item_total_pesos = Decimal("0")
                 
         for medida in item.medidas:
             qty = medida.cantidad or 1
             item_qty += qty
             
-            sup = float(medida.superficie or 0)
-            per = float(medida.perimtero or 0)
-            tot = float(medida.total_item or 0)
+            sup = _to_decimal(medida.superficie)
+            per = _to_decimal(medida.perimtero)
+            tot = _to_decimal(medida.total_item)
             
             item_total_m2 += sup
             item_total_ml += per
@@ -273,34 +277,34 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
             
             panos_out.append({
                 "cantidad": qty,
-                "ancho": float(medida.ancho or 0),
-                "alto": float(medida.alto or 0),
-                "superficie_m2": sup / qty if qty > 0 else 0,
-                "perimetro_ml": per / qty if qty > 0 else 0,
-                "precio_total": tot,
-                "precio_unitario": tot / qty if qty > 0 else 0.0
+                "ancho": _to_float(medida.ancho),
+                "alto": _to_float(medida.alto),
+                "superficie_m2": _to_float(sup / _to_decimal(qty)) if qty > 0 else 0.0,
+                "perimetro_ml": _to_float(per / _to_decimal(qty)) if qty > 0 else 0.0,
+                "precio_total": _to_float(tot),
+                "precio_unitario": _to_float(tot / _to_decimal(qty)) if qty > 0 else 0.0
             })
             
         adicionales_out = []
         for comp in item.complementos:
             qty = comp.cantidad or 1
-            unit_price = float(comp.total_complemento or 0)
-            tot_comp = unit_price * qty
+            unit_price = _to_decimal(comp.total_complemento)
+            tot_comp = unit_price * _to_decimal(qty)
             item_total_pesos += tot_comp
             
             adicionales_out.append({
                 "cantidad": qty,
                 "descripcion": f"Complemento {comp.v_complemento_id}", # Or lookup name if needed
-                "precio_total": tot_comp,
-                "precio_unitario": unit_price
+                "precio_total": _to_float(tot_comp),
+                "precio_unitario": _to_float(unit_price)
             })
 
         items_out.append({
             "descripcion": item.descripcion or f"Item {item.id}",
             "cantidad": item_qty or 1,
-            "total_m2": item_total_m2,
-            "total_ml": item_total_ml,
-            "total_pesos": item_total_pesos,
+            "total_m2": _to_float(item_total_m2),
+            "total_ml": _to_float(item_total_ml),
+            "total_pesos": _to_float(item_total_pesos),
             "panos": panos_out,
             "adicionales": adicionales_out
         })
@@ -321,9 +325,9 @@ def get_presupuesto_details(db: Session, v_presupuesto_id: str):
         "cliente_nombre": cliente_nombre,
         "obra_nombre": obra_nombre or f"Presupuesto {normalized_presupuesto_id}",
         "pedidos_relacionados": list(pedidos_set),
-        "total_m2": total_m2,
-        "total_ml": total_ml,
-        "total_pesos": total_pesos,
+        "total_m2": _to_float(total_m2),
+        "total_ml": _to_float(total_ml),
+        "total_pesos": _to_float(total_pesos),
         "items_count": len(items_out),
         "items": items_out
     }
@@ -405,7 +409,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
     # This part can be complex due to polymorphic links.
     
     # helper to process billing/dispatch per line
-    def get_line_progress(item_id: int, item_type: str, total_qty_expected: float):
+    def get_line_progress(item_id: int, item_type: str, total_qty_expected):
         # Find bodies in union
         bodies = db.query(SpfTangoBody).filter(
             SpfTangoBody.linea_item_id == item_id,
@@ -418,16 +422,16 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
         
         all_body_ids = [b.id for b in bodies] + [b.id for b in hist_bodies]
         if not all_body_ids:
-            return 0.0, 0.0, []
+            return Decimal("0"), Decimal("0"), []
 
         # Sum facturado/remitido
         f_sum = db.query(func.sum(SpfLineaTangoFacturada.cantidad_ya_facturada)).filter(
             SpfLineaTangoFacturada.tango_body_id.in_(all_body_ids)
-        ).scalar() or 0.0
+        ).scalar() or Decimal("0")
         
         r_sum = db.query(func.sum(SpfLineaTangoRemitida.cantidad_ya_remitida)).filter(
             SpfLineaTangoRemitida.tango_body_id.in_(all_body_ids)
-        ).scalar() or 0.0
+        ).scalar() or Decimal("0")
 
         # Get comprobantes associated
         comp_fact = db.query(SpfComprobanteTemp).join(
@@ -440,13 +444,17 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
         
         comprobantes = _dedupe_comprobantes(comp_fact + comp_remit)
 
-        perc_f = (float(f_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
-        perc_r = (float(r_sum) / total_qty_expected * 100) if total_qty_expected > 0 else 0.0
+        expected = _to_decimal(total_qty_expected)
+        perc_f = (_to_decimal(f_sum) / expected * Decimal("100")) if expected > 0 else Decimal("0")
+        perc_r = (_to_decimal(r_sum) / expected * Decimal("100")) if expected > 0 else Decimal("0")
         
-        return min(perc_f, 100.0), min(perc_r, 100.0), comprobantes
+        return min(perc_f, Decimal("100")), min(perc_r, Decimal("100")), comprobantes
 
     # 4. Construct Output
     pedidos_out = []
+    global_tot = Decimal("0")
+    global_fact = Decimal("0")
+    global_remit = Decimal("0")
     for p in pedidos:
         p_items = [it for it in items if it.pedido_id == p.id]
         items_detail = []
@@ -460,44 +468,51 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
             # Item Medidas
             for med in it.medidas:
                 qty = med.cantidad or 1
-                sup = float(med.superficie or 0)
-                tot = float(med.total_item or 0)
+                qty_decimal = _to_decimal(qty)
+                sup = _to_decimal(med.superficie)
+                tot = _to_decimal(med.total_item)
                 
                 # Based on requirement: superficie is subtotal (total of the line)
                 # precio por m2 = total_item / superficie
                 # precio unitario = total_item / cantidad
                 
-                pf, pr, comps = get_line_progress(med.id, 'SpfPedido::ItemMedida', float(qty))
+                pf, pr, comps = get_line_progress(med.id, 'SpfPedido::ItemMedida', qty)
+                global_tot += tot
+                global_fact += tot * pf / Decimal("100")
+                global_remit += tot * pr / Decimal("100")
                 
                 items_detail.append({
                     "tipo": "Medida",
                     "descripcion": med.denominacion or it.descripcion,
                     "cantidad": qty,
-                    "importe_total": tot,
-                    "precio_unitario": tot / qty if qty > 0 else 0,
-                    "precio_m2": tot / sup if sup > 0 else 0,
-                    "avance_facturado": pf,
-                    "avance_remitido": pr,
+                    "importe_total": _to_float(tot),
+                    "precio_unitario": _to_float(tot / qty_decimal) if qty > 0 else 0.0,
+                    "precio_m2": _to_float(tot / sup) if sup > 0 else 0.0,
+                    "avance_facturado": _to_float(pf),
+                    "avance_remitido": _to_float(pr),
                     "comprobantes": comps
                 })
             
             # Item Complementos
             for comp in it.complementos:
                 qty = comp.cantidad or 1
-                unit_price = float(comp.total_complemento or 0)
-                tot = unit_price * qty
+                unit_price = _to_decimal(comp.total_complemento)
+                tot = unit_price * _to_decimal(qty)
                 desc = complement_names.get(comp.v_complemento_id, f"Complemento {comp.v_complemento_id}")
                 
-                pf, pr, comps = get_line_progress(comp.id, 'SpfPedido::ItemComplemento', float(qty))
+                pf, pr, comps = get_line_progress(comp.id, 'SpfPedido::ItemComplemento', qty)
+                global_tot += tot
+                global_fact += tot * pf / Decimal("100")
+                global_remit += tot * pr / Decimal("100")
                 
                 items_detail.append({
                     "tipo": "Complemento",
                     "descripcion": desc,
                     "cantidad": qty,
-                    "importe_total": tot,
-                    "precio_unitario": unit_price,
-                    "avance_facturado": pf,
-                    "avance_remitido": pr,
+                    "importe_total": _to_float(tot),
+                    "precio_unitario": _to_float(unit_price),
+                    "avance_facturado": _to_float(pf),
+                    "avance_remitido": _to_float(pr),
                     "comprobantes": comps
                 })
 
@@ -510,21 +525,16 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
             "items": items_detail
         })
 
-    # 5. Global Summary
-    global_tot = sum(p["importe_total"] for p_out in pedidos_out for p in p_out["items"])
-    global_fact = sum(p["importe_total"] * (p["avance_facturado"] / 100.0) for p_out in pedidos_out for p in p_out["items"])
-    global_remit = sum(p["importe_total"] * (p["avance_remitido"] / 100.0) for p_out in pedidos_out for p in p_out["items"])
-
     return {
         "v_presupuesto_id": _normalize_presupuesto_id(v_presupuesto_id),
         "cliente": pedidos_out[0]["cliente"] if pedidos_out else "Desconocido",
         "obra": (pedidos[0].nrooc or "S/D") if pedidos else "S/D",
         "resumen": {
-            "importe_total": global_tot,
-            "facturado_total": global_fact,
-            "remitido_total": global_remit,
-            "porcentaje_facturado": (global_fact / global_tot * 100) if global_tot > 0 else 0,
-            "porcentaje_remitido": (global_remit / global_tot * 100) if global_tot > 0 else 0,
+            "importe_total": _to_float(global_tot),
+            "facturado_total": _to_float(global_fact),
+            "remitido_total": _to_float(global_remit),
+            "porcentaje_facturado": _to_float(global_fact / global_tot * Decimal("100")) if global_tot > 0 else 0.0,
+            "porcentaje_remitido": _to_float(global_remit / global_tot * Decimal("100")) if global_tot > 0 else 0.0,
         },
         "pedidos": pedidos_out
     }
@@ -572,9 +582,9 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
     # Get items for totals
     items = db.query(SpfItem).filter(SpfItem.pedido_id == pedido.id).all()
     
-    total_m2 = 0.0
-    total_ml = 0.0
-    total_pesos = 0.0
+    total_m2 = Decimal("0")
+    total_ml = Decimal("0")
+    total_pesos = Decimal("0")
     total_qty = 0
     items_out = []
     complement_names = _get_complement_names(db, items)
@@ -583,21 +593,21 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         if not v_presupuesto_id and it.v_presupuesto_id:
             v_presupuesto_id = str(it.v_presupuesto_id).zfill(9)
 
-        item_m2 = 0.0
-        item_ml = 0.0
-        item_pesos = 0.0
+        item_m2 = Decimal("0")
+        item_ml = Decimal("0")
+        item_pesos = Decimal("0")
         item_qty = 0
 
         for med in it.medidas:
-            item_m2 += float(med.superficie or 0) # Already subtotal from requirement
-            item_ml += float(med.perimtero or 0)
-            item_pesos += float(med.total_item or 0)
+            item_m2 += _to_decimal(med.superficie) # Already subtotal from requirement
+            item_ml += _to_decimal(med.perimtero)
+            item_pesos += _to_decimal(med.total_item)
             item_qty += (med.cantidad or 0)
             
         for comp in it.complementos:
             qty = comp.cantidad or 1
-            unit_price = float(comp.total_complemento or 0)
-            item_pesos += unit_price * qty
+            unit_price = _to_decimal(comp.total_complemento)
+            item_pesos += unit_price * _to_decimal(qty)
             # The units of adicionales should NOT count towards physical units consumed
 
         item_procesos, composicion = summarize_spf_item_processes(db, it, complement_names)
@@ -605,9 +615,9 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
             "id": it.id,
             "v_item_id": it.v_item_id,
             "descripcion": it.descripcion or f"Item {it.id}",
-            "total_m2": item_m2,
-            "total_ml": item_ml,
-            "total_pesos": item_pesos,
+            "total_m2": _to_float(item_m2),
+            "total_ml": _to_float(item_ml),
+            "total_pesos": _to_float(item_pesos),
             "total_unidades": item_qty,
             "procesos": item_procesos,
             "composicion": {
@@ -648,9 +658,9 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         "procesos": summarize_spf_items_processes(db, items),
         "items": items_out,
         "totals": {
-            "m2": total_m2,
-            "ml": total_ml,
-            "pesos": total_pesos,
+            "m2": _to_float(total_m2),
+            "ml": _to_float(total_ml),
+            "pesos": _to_float(total_pesos),
             "unidades": total_qty
         }
     }

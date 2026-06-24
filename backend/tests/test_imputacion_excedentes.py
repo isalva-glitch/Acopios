@@ -1,20 +1,24 @@
 import pytest
 from decimal import Decimal
+from datetime import date
 from sqlalchemy.orm import Session
-from models import Acopio, AcopioItem, Imputacion
+from models import Acopio, AcopioItem, Imputacion, Pedido
+from config import settings
 from services.imputacion_service import check_excedente, imputar_consumos
 
 def test_excedente_item_vs_acopio_global(db_session: Session):
     # Create acopio
     acopio = Acopio(
         numero="AC-TEST-1",
-        empresa="TEST",
-        obra="TEST",
-        fecha="2023-01-01",
+        fecha_alta=date(2023, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("10000.00"),
+        total_unidades=10,
         saldo_m2=Decimal("100.00"),
         saldo_ml=Decimal("100.00"),
         saldo_pesos=Decimal("10000.00"),
-        saldo_unidades=10
+        saldo_unidades=10,
     )
     db_session.add(acopio)
     db_session.commit()
@@ -74,3 +78,112 @@ def test_excedente_item_vs_acopio_global(db_session: Session):
     
     assert is_excedente is False
     assert excedente_tipo == "NONE"
+
+
+def test_money_precision_does_not_create_excedente_for_equal_cents(db_session: Session):
+    acopio = Acopio(
+        numero="AC-TEST-2",
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("1128417.90"),
+        total_unidades=19,
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("100.00"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_unidades=19,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="Laminado 4+4 Gris Claro con Borde Pulido",
+        cantidad=19,
+        total_m2=Decimal("16.62"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+        saldo_m2=Decimal("16.62"),
+        saldo_ml=Decimal("73.41"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_cantidad=19,
+    )
+    db_session.add(item)
+    db_session.flush()
+
+    is_excedente, excedente_tipo, warning = check_excedente(
+        db=db_session,
+        acopio_id=acopio.id,
+        acopio_item_id=item.id,
+        cantidad_m2=Decimal("16.61"),
+        cantidad_ml=Decimal("73.41"),
+        cantidad_pesos=Decimal("1128417.9000000001"),
+        cantidad_unidades=19,
+    )
+
+    assert is_excedente is False
+    assert excedente_tipo == "NONE"
+    assert warning is None
+
+
+def test_money_precision_does_not_create_batch_excedente(db_session: Session):
+    acopio = Acopio(
+        numero="AC-TEST-3",
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("1128417.90"),
+        total_unidades=19,
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("100.00"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_unidades=19,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="Laminado 4+4 Gris Claro con Borde Pulido",
+        cantidad=19,
+        total_m2=Decimal("16.62"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+        saldo_m2=Decimal("16.62"),
+        saldo_ml=Decimal("73.41"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_cantidad=19,
+    )
+    pedido = Pedido(
+        numero="23365",
+        fecha=date(2024, 1, 2),
+        total_m2=Decimal("16.61"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.9000000001"),
+    )
+    db_session.add_all([item, pedido])
+    db_session.flush()
+
+    original_policy = settings.excedente_policy
+    try:
+        settings.excedente_policy = "WARN"
+        imputaciones, warnings = imputar_consumos(db_session, [
+            {
+                "pedido_id": pedido.id,
+                "acopio_id": acopio.id,
+                "acopio_item_id": item.id,
+                "cantidad_m2": Decimal("16.61"),
+                "cantidad_ml": Decimal("73.41"),
+                "cantidad_pesos": Decimal("1128417.9000000001"),
+                "cantidad_unidades": 19,
+            }
+        ])
+    finally:
+        settings.excedente_policy = original_policy
+
+    assert len(imputaciones) == 1
+    assert imputaciones[0].es_excedente is False
+    assert imputaciones[0].excedente_tipo == "NONE"
+    assert warnings == []

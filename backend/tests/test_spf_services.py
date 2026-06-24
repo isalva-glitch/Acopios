@@ -1,10 +1,12 @@
 """Tests for SPF integration services."""
 import pytest
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 from integrations.spf.services import (
     _normalize_presupuesto_id,
     _spf_cliente_display_name,
+    get_pedido_for_imputation,
     search_presupuestos,
     get_presupuesto_details,
 )
@@ -84,4 +86,41 @@ def test_get_presupuesto_details_aggregates():
     assert result["items"][0]["cantidad"] == 3  # medida1 (2) + medida2 (1)
     assert len(result["items"][0]["panos"]) == 2
 
+
+def test_get_pedido_for_imputation_uses_decimal_for_money_totals():
+    mock_db = MagicMock()
+
+    pedido = SpfPedido(id=23365, nro_pedido=23365, id_presupuesto=212455, estado_id=3)
+    item = SpfItem(
+        id=1,
+        v_item_id=1,
+        v_presupuesto_id="212455",
+        descripcion="Laminado 4+4 Gris Claro con Borde Pulido",
+    )
+    item.medidas = [
+        SpfItemMedida(
+            cantidad=19,
+            superficie=Decimal("16.61"),
+            perimtero=Decimal("73.41"),
+            total_item=Decimal("1128417.60"),
+        )
+    ]
+    item.complementos = [
+        SpfItemComplemento(cantidad=1, total_complemento=Decimal("0.10")),
+        SpfItemComplemento(cantidad=1, total_complemento=Decimal("0.20")),
+    ]
+
+    pedido_query = MagicMock()
+    pedido_query.filter.return_value.first.return_value = pedido
+    items_query = MagicMock()
+    items_query.filter.return_value.all.return_value = [item]
+    talonario_query = MagicMock()
+    talonario_query.filter.return_value.all.return_value = []
+    mock_db.query.side_effect = [pedido_query, items_query, talonario_query]
+
+    result = get_pedido_for_imputation(mock_db, "23365")
+
+    assert Decimal(str(result["items"][0]["total_pesos"])) == Decimal("1128417.90")
+    assert Decimal(str(result["totals"]["pesos"])) == Decimal("1128417.90")
+    assert str(result["items"][0]["total_pesos"]) != "1128417.9000000001"
 

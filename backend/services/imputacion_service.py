@@ -1,11 +1,25 @@
 """Imputacion service with business logic."""
 from typing import Iterable, Optional, Tuple
 from sqlalchemy.orm import Session
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from models import Imputacion, ImputacionProceso, Acopio, AcopioItem, Pedido
 from config import settings
 from services.proceso_inference import PROCESS_FIELDS, PROCESS_UNITS
+
+MONEY_QUANT = Decimal("0.01")
+
+
+def _to_decimal(value) -> Decimal:
+    if value is None:
+        return Decimal("0")
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _money(value) -> Decimal:
+    return _to_decimal(value).quantize(MONEY_QUANT, rounding=ROUND_HALF_UP)
 
 
 class ExcedentePolicy:
@@ -48,7 +62,7 @@ def check_excedente(
         is_excedente = True
         warnings.append(f"ml: consumo {cantidad_ml} excede saldo {acopio.saldo_ml}")
     
-    if cantidad_pesos > acopio.saldo_pesos:
+    if _money(cantidad_pesos) > _money(acopio.saldo_pesos):
         is_excedente = True
         warnings.append(f"pesos: consumo {cantidad_pesos} excede saldo {acopio.saldo_pesos}")
         
@@ -70,7 +84,7 @@ def check_excedente(
             if cantidad_ml > item.saldo_ml:
                 item_excedente = True
                 warnings.append(f"Item {item.descripcion}: ml excede saldo")
-            if cantidad_pesos > item.saldo_pesos:
+            if _money(cantidad_pesos) > _money(item.saldo_pesos):
                 item_excedente = True
                 warnings.append(f"Item {item.descripcion}: pesos excede saldo")
             if cantidad_unidades > item.saldo_cantidad:
@@ -199,18 +213,15 @@ def imputar_consumos(
     excedente_tipos: list[str] = []
     excedente_motivos: list[str] = []
 
-    def to_decimal(value) -> Decimal:
-        return value if isinstance(value, Decimal) else Decimal(str(value or 0))
-
     def add_warning(message: Optional[str]) -> None:
         if message and message not in warnings:
             warnings.append(message)
 
     def add_to_bucket(bucket: dict, consumo: dict, index: int) -> None:
         bucket["indices"].append(index)
-        bucket["m2"] += to_decimal(consumo["cantidad_m2"])
-        bucket["ml"] += to_decimal(consumo["cantidad_ml"])
-        bucket["pesos"] += to_decimal(consumo["cantidad_pesos"])
+        bucket["m2"] += _to_decimal(consumo["cantidad_m2"])
+        bucket["ml"] += _to_decimal(consumo["cantidad_ml"])
+        bucket["pesos"] += _to_decimal(consumo["cantidad_pesos"])
         bucket["unidades"] += int(consumo["cantidad_unidades"] or 0)
 
     def mark_excedente(indices: list[int], message: str, tipo: str) -> None:
@@ -264,19 +275,19 @@ def imputar_consumos(
         if not acopio:
             continue
 
-        if bucket["m2"] > to_decimal(acopio.saldo_m2):
+        if bucket["m2"] > _to_decimal(acopio.saldo_m2):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado m2 {bucket['m2']} excede saldo {acopio.saldo_m2}",
                 "ACOPIO"
             )
-        if bucket["ml"] > to_decimal(acopio.saldo_ml):
+        if bucket["ml"] > _to_decimal(acopio.saldo_ml):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado ml {bucket['ml']} excede saldo {acopio.saldo_ml}",
                 "ACOPIO"
             )
-        if bucket["pesos"] > to_decimal(acopio.saldo_pesos):
+        if _money(bucket["pesos"]) > _money(acopio.saldo_pesos):
             mark_excedente(
                 bucket["indices"],
                 f"Acopio {acopio_id}: consumo acumulado pesos {bucket['pesos']} excede saldo {acopio.saldo_pesos}",
@@ -295,19 +306,19 @@ def imputar_consumos(
             continue
 
         item_label = item.descripcion or item_id
-        if bucket["m2"] > to_decimal(item.saldo_m2):
+        if bucket["m2"] > _to_decimal(item.saldo_m2):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado m2 {bucket['m2']} excede saldo {item.saldo_m2}",
                 "ITEM"
             )
-        if bucket["ml"] > to_decimal(item.saldo_ml):
+        if bucket["ml"] > _to_decimal(item.saldo_ml):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado ml {bucket['ml']} excede saldo {item.saldo_ml}",
                 "ITEM"
             )
-        if bucket["pesos"] > to_decimal(item.saldo_pesos):
+        if _money(bucket["pesos"]) > _money(item.saldo_pesos):
             mark_excedente(
                 bucket["indices"],
                 f"Item {item_label}: consumo acumulado pesos {bucket['pesos']} excede saldo {item.saldo_pesos}",
