@@ -4,6 +4,8 @@ services:
   db:
     image: postgres:15-alpine
     container_name: acopios_db
+    mem_limit: 768m
+    cpus: 1.0
     environment:
       POSTGRES_DB: acopios
       POSTGRES_USER: acopios_user
@@ -23,6 +25,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: acopios_backend
+    mem_limit: 768m
+    cpus: 1.5
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
       DATABASE_URL: postgresql+psycopg://acopios_user:acopios_password@db:5432/acopios

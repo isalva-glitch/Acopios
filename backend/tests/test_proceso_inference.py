@@ -98,6 +98,62 @@ def test_excel_summary_process_aliases():
     assert result["pegado_bastidor"] is True
 
 
+def test_vidrio_monolitico_asigna_vidrio_interior_por_defecto():
+    """Un vidrio simple sin DVH, cámara ni laminado recibe vidrio_interior=True."""
+    # Caso modelo: Mirage 5 mm. Incoloro con Borde Pulido (Presupuesto #000212248)
+    result = infer_item_processes_from_texts([
+        "Mirage 5 mm. Incoloro con Borde Pulido Brillante en máquina retilínea."
+    ])
+
+    assert result["vidrio_interior"] is True
+    assert result["vidrio_exterior"] is False
+    assert result["camara_normal"] is False
+    assert result["camara_estructural"] is False
+    assert result["camara_offset"] is False
+
+
+def test_vidrio_incoloro_simple_asigna_vidrio_interior():
+    """Un vidrio incoloro sin composición adicional también es monolítico."""
+    result = infer_item_processes_from_texts([
+        "Vidrio Incoloro 6 mm. con Borde Pulido"
+    ])
+
+    assert result["vidrio_interior"] is True
+    assert result["vidrio_exterior"] is False
+
+
+def test_laminado_no_activa_regla_monolitico():
+    """El laminado queda sin proceso de vidrio (no es monolítico)."""
+    result = infer_item_processes_from_texts([
+        "Laminado 4+4 Incoloro con filos matados"
+    ])
+
+    assert result["vidrio_interior"] is False
+    assert result["vidrio_exterior"] is False
+
+
+def test_dvh_no_activa_regla_monolitico():
+    """DVH sigue marcando ambos vidrios (interior y exterior), sin cambios."""
+    result = infer_item_processes_from_texts([
+        "DVH 4+4"
+    ])
+
+    assert result["vidrio_interior"] is True
+    assert result["vidrio_exterior"] is True
+    assert result["camara_normal"] is True
+
+
+def test_vidrio_exterior_explicito_no_activa_regla_monolitico():
+    """Un item con vidrio exterior explícito no aplica la regla monolítico."""
+    result = infer_item_processes_from_texts([
+        "Vidrio Exterior templado"
+    ])
+
+    assert result["vidrio_exterior"] is True
+    # La regla monolítico no aplica porque ya hay vidrio_exterior=True
+    assert result["vidrio_interior"] is False
+
+
 def test_acopio_creation_marks_detected_processes_and_keeps_manual_uncheck(
     client: TestClient,
 ):

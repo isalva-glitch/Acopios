@@ -127,9 +127,89 @@ def test_money_precision_does_not_create_excedente_for_equal_cents(db_session: S
     assert warning is None
 
 
-def test_money_precision_does_not_create_batch_excedente(db_session: Session):
+def test_money_precision_one_cent_over_item_is_excedente(db_session: Session):
     acopio = Acopio(
         numero="AC-TEST-3",
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("9999999.99"),
+        total_unidades=19,
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("100.00"),
+        saldo_pesos=Decimal("9999999.99"),
+        saldo_unidades=19,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=1,
+        descripcion="Laminado 4+4 Gris Claro con Borde Pulido",
+        cantidad=19,
+        total_m2=Decimal("16.62"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.90"),
+        saldo_m2=Decimal("16.62"),
+        saldo_ml=Decimal("73.41"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_cantidad=19,
+    )
+    db_session.add(item)
+    db_session.flush()
+
+    is_excedente, excedente_tipo, warning = check_excedente(
+        db=db_session,
+        acopio_id=acopio.id,
+        acopio_item_id=item.id,
+        cantidad_m2=Decimal("16.61"),
+        cantidad_ml=Decimal("73.41"),
+        cantidad_pesos=Decimal("1128417.91"),
+        cantidad_unidades=19,
+    )
+
+    assert is_excedente is True
+    assert excedente_tipo == "ITEM"
+    assert warning is not None
+    assert "pesos excede saldo" in warning
+
+
+def test_money_precision_one_cent_over_acopio_is_excedente(db_session: Session):
+    acopio = Acopio(
+        numero="AC-TEST-4",
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("1128417.90"),
+        total_unidades=19,
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("100.00"),
+        saldo_pesos=Decimal("1128417.90"),
+        saldo_unidades=19,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    is_excedente, excedente_tipo, warning = check_excedente(
+        db=db_session,
+        acopio_id=acopio.id,
+        acopio_item_id=None,
+        cantidad_m2=Decimal("16.61"),
+        cantidad_ml=Decimal("73.41"),
+        cantidad_pesos=Decimal("1128417.91"),
+        cantidad_unidades=19,
+    )
+
+    assert is_excedente is True
+    assert excedente_tipo == "ACOPIO"
+    assert warning is not None
+    assert "pesos: consumo 1128417.91 excede saldo 1128417.90" in warning
+
+
+def test_money_precision_does_not_create_batch_excedente(db_session: Session):
+    acopio = Acopio(
+        numero="AC-TEST-5",
         fecha_alta=date(2024, 1, 1),
         total_m2=Decimal("100.00"),
         total_ml=Decimal("100.00"),

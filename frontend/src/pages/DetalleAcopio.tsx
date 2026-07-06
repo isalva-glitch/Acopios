@@ -1604,6 +1604,7 @@ function DetalleAcopio() {
                             <thead>
                                 <tr>
                                     <th>Pedido / OC</th>
+                                    <th>Unidades</th>
                                     <th>m²</th>
                                     <th>ml</th>
                                     <th>$</th>
@@ -1616,6 +1617,7 @@ function DetalleAcopio() {
                                 {acopio.imputaciones.map((imp: any) => (
                                     <tr key={imp.id}>
                                         <td>{imp.pedido_numero}</td>
+                                        <td>{imp.cantidad_unidades}</td>
                                         <td>{imp.cantidad_m2}</td>
                                         <td>{imp.cantidad_ml}</td>
                                         <td>{formatCurrencyAR(imp.cantidad_pesos)}</td>

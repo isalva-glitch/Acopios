@@ -231,6 +231,79 @@ def _create_stale_precision_excedente(db_session):
     return acopio, pedido, imputacion
 
 
+def _create_real_money_excedente(db_session, tipo: str):
+    cliente = Cliente(nombre=f"Cliente Excedente {tipo}")
+    db_session.add(cliente)
+    db_session.flush()
+
+    obra = Obra(nombre=f"Obra Excedente {tipo}", cliente_id=cliente.id)
+    db_session.add(obra)
+    db_session.flush()
+
+    is_item = tipo == "ITEM"
+    acopio = Acopio(
+        numero=f"REAL-{tipo}",
+        obra_id=obra.id,
+        fecha_alta=date(2024, 1, 1),
+        total_m2=Decimal("100.00"),
+        total_ml=Decimal("100.00"),
+        total_pesos=Decimal("9999999.99") if is_item else Decimal("1128417.90"),
+        total_unidades=100,
+        saldo_m2=Decimal("100.00"),
+        saldo_ml=Decimal("100.00"),
+        saldo_pesos=Decimal("9999999.99") if is_item else Decimal("1128417.90"),
+        saldo_unidades=100,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = None
+    if is_item:
+        item = AcopioItem(
+            acopio_id=acopio.id,
+            numero_item=1,
+            descripcion="Item con excedente real de un centavo",
+            cantidad=100,
+            total_m2=Decimal("100.00"),
+            total_ml=Decimal("100.00"),
+            total_pesos=Decimal("1128417.90"),
+            saldo_m2=Decimal("100.00"),
+            saldo_ml=Decimal("100.00"),
+            saldo_pesos=Decimal("1128417.90"),
+            saldo_cantidad=100,
+        )
+        db_session.add(item)
+        db_session.flush()
+
+    pedido = Pedido(
+        numero=f"PED-REAL-{tipo}",
+        obra_id=obra.id,
+        fecha=date(2024, 6, 24),
+        total_m2=Decimal("16.61"),
+        total_ml=Decimal("73.41"),
+        total_pesos=Decimal("1128417.91"),
+    )
+    db_session.add(pedido)
+    db_session.flush()
+
+    imputacion = Imputacion(
+        pedido_id=pedido.id,
+        acopio_id=acopio.id,
+        acopio_item_id=item.id if item else None,
+        cantidad_m2=Decimal("16.61"),
+        cantidad_ml=Decimal("73.41"),
+        cantidad_pesos=Decimal("1128417.91"),
+        cantidad_unidades=19,
+        es_excedente=True,
+        excedente_tipo=tipo,
+        excedente_motivo="motivo anterior",
+    )
+    db_session.add(imputacion)
+    db_session.commit()
+
+    return imputacion
+
+
 def test_get_acopio_detail_recalculates_stale_money_precision_excedente(client, db_session):
     acopio, _pedido, imputacion = _create_stale_precision_excedente(db_session)
 
@@ -275,6 +348,34 @@ def test_pedido_detail_recalculates_stale_money_precision_flags(client, db_sessi
     assert imputacion.es_excedente is False
     assert imputacion.excedente_tipo == "NONE"
     assert imputacion.excedente_motivo is None
+
+
+def test_excedentes_report_keeps_real_item_money_excedente(client, db_session):
+    imputacion = _create_real_money_excedente(db_session, "ITEM")
+
+    response = client.get("/reportes/excedentes")
+
+    assert response.status_code == 200
+    assert imputacion.id in {row["id"] for row in response.json()["excedentes"]}
+
+    db_session.refresh(imputacion)
+    assert imputacion.es_excedente is True
+    assert imputacion.excedente_tipo == "ITEM"
+    assert "pesos excede total" in imputacion.excedente_motivo
+
+
+def test_excedentes_report_keeps_real_acopio_money_excedente(client, db_session):
+    imputacion = _create_real_money_excedente(db_session, "ACOPIO")
+
+    response = client.get("/reportes/excedentes")
+
+    assert response.status_code == 200
+    assert imputacion.id in {row["id"] for row in response.json()["excedentes"]}
+
+    db_session.refresh(imputacion)
+    assert imputacion.es_excedente is True
+    assert imputacion.excedente_tipo == "ACOPIO"
+    assert "consumo acumulado pesos 1128417.91 excede total 1128417.90" in imputacion.excedente_motivo
 
 
 def _create_reference_price_acopio(db_session):

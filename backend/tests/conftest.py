@@ -9,7 +9,7 @@ from main import app
 
 
 # Test database URL
-TEST_DATABASE_URL = "sqlite:///./test.db"
+TEST_DATABASE_URL = "sqlite:////tmp/test.db"
 
 
 @pytest.fixture(scope="function")

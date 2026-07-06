@@ -63,6 +63,8 @@ El sistema estará disponible en:
 - **Backend API**: http://localhost:8000
 - **Documentación API**: http://localhost:8000/docs
 
+El `docker-compose.yml` fija límites locales para estabilizar el entorno de desarrollo: `db` corre con `mem_limit: 768m` y `cpus: 1.0`, y `backend` con `mem_limit: 768m` y `cpus: 1.5`.
+
 ## Estructura del Proyecto
 
 ```
@@ -162,9 +164,11 @@ El detalle `/acopios/:id` muestra en **Información General** un campo manual de
 Las imputaciones nuevas y los datos históricos comparten la misma regla monetaria:
 
 - Los importes se comparan con `Decimal` cuantizado a 2 decimales para evitar falsos positivos por ruido binario, por ejemplo `1128417.9000000001` contra `1128417.90`.
+- Un exceso monetario real de un centavo sigue siendo excedente: por ejemplo `1128417.91` contra `1128417.90` se conserva como excedente de item o acopio segun corresponda.
 - Los cálculos SPF acumulan m², ml e importes con `Decimal` y convierten a `float` recién al borde JSON.
 - Las marcas históricas de `imputaciones.es_excedente` se recalculan desde los totales contratados del acopio/item antes de responder `GET /acopios/{id}`, `GET /pedidos/{id}` y `GET /reportes/excedentes`.
 - El reporte de excedentes no lista una imputación marcada por una regla vieja si el recálculo actual determina que no hay excedente real.
+- `imputaciones.excedente_motivo` usa tipo `Text` desde la migración `20260706_1326_b9b2f03f1d9f_change_excedente_motivo_to_text` para preservar motivos largos de recálculo y auditoría.
 
 ## UX: Ancho de Acopios
 
@@ -182,6 +186,8 @@ El listado `/acopios` y el detalle `/acopios/:id` usan contenedores específicos
 cd backend
 pytest tests/ -v
 ```
+
+Los tests usan SQLite en `/tmp/test.db` para evitar ensuciar el árbol del repo con archivos de base temporales.
 
 ### Tests de Extracción con PDFs Fixture
 
@@ -282,6 +288,7 @@ El detalle del acopio combina **Totales y Saldos** con un resumen lateral de **C
 
 - Totales muestra cantidad, m2, ml y pesos contratados contra saldo disponible.
 - Consumos Aplicados lista cada imputacion con numero de pedido, importe, fecha del pedido y marca de excedente cuando corresponde.
+- La tabla detallada de pedidos de produccion muestra tambien las unidades imputadas, ademas de m2, ml e importe.
 - El total consumido se calcula desde las imputaciones visibles y el disponible reutiliza el saldo del acopio.
 - Los remitos y facturas relacionados quedan en un bloque colapsable para control documental sin ocupar espacio permanente.
 - La API de detalle expone `imputaciones[].fecha` desde la fecha del pedido SPF para mantener la cronologia visible en la UI.
@@ -319,6 +326,7 @@ Reglas interpretativas principales:
 - `Cámara` sin especificar Normal, Estructural u Offset se interpreta como Cámara Normal.
 - `Cámara Normal` explícita puede convivir con Cámara Estructural u Offset si también aparecen en el detalle.
 - `Cámara ... Estructural Offset` se interpreta como Cámara Offset. No se marca también como Cámara Estructural, porque es una variante Offset y no dos procesos de cámara acumulables.
+- Un vidrio simple sin DVH, sin camara, sin laminado y sin marca explicita de vidrio exterior se interpreta como Vidrio Interior para que sus m2 entren en el resumen de procesos.
 - `Templado`, `Templada`, `Templados`, `Templadas` o `Temp` marcan Fasón Templado Exterior.
 - El signo `+` separa partes del detalle, pero no crea procesos por sí mismo: solo se marcan procesos con palabras clave conocidas.
 - Medidas o composiciones como `4+4` no marcan procesos si no incluyen una palabra clave de proceso.

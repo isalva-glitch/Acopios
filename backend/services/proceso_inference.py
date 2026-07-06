@@ -189,6 +189,22 @@ def infer_item_processes_from_texts(texts: Iterable[object]) -> dict:
     if has_generic_opacificado and not inferred["opacificado_perimetral"]:
         inferred["opacificado_total"] = True
 
+    # Vidrio monolítico: sin vidrio interior/exterior explícito, sin DVH, sin cámara
+    # y sin laminado → asignar vidrio_interior=True por defecto para contabilizar m².
+    # Ejemplo: "Mirage 5 mm. Incoloro con Borde Pulido" → vidrio_interior=True
+    has_laminado = bool(re.search(r"\blam(?:inado)?\s*\d", normalized))
+    is_monolitico = (
+        not inferred["vidrio_interior"]
+        and not inferred["vidrio_exterior"]
+        and not has_dvh
+        and not inferred["camara_normal"]
+        and not inferred["camara_estructural"]
+        and not inferred["camara_offset"]
+        and not has_laminado
+    )
+    if is_monolitico:
+        inferred["vidrio_interior"] = True
+
     return inferred
 
 
