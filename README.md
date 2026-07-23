@@ -117,6 +117,13 @@ Acopios/
 - `POST /imputaciones` - Imputar consumo contra acopio
 - `DELETE /imputaciones/{id}` - Anular imputación y restaurar saldos acopio
 
+### Aprendizaje de Procesos
+- `GET /aprendizaje-procesos/correcciones` - Listar correcciones manuales registradas sobre procesos de items
+- `GET /aprendizaje-procesos/reglas` - Listar reglas candidatas generadas desde correcciones manuales
+- `POST /aprendizaje-procesos/reglas/{id}/simular` - Simular el impacto de una regla sobre items existentes antes de aprobarla
+- `POST /aprendizaje-procesos/reglas/{id}/aprobar` - Aprobar una regla para que participe en nuevas inferencias
+- `POST /aprendizaje-procesos/reglas/{id}/desactivar` - Desactivar una regla aprobada o candidata
+
 ### Reportes / Informes
 - `GET /reportes/acopios-activos` - Acopios con saldo
 - `GET /reportes/excedentes` - Imputaciones excedentes
@@ -319,6 +326,8 @@ Esto evita pérdidas de datos accidentales y permite revisar cambios antes de co
 Durante el alta desde PDF o SPF, el sistema interpreta el detalle de cada item usando descripción, material, tipología, denominación de paños y adicionales. Con esa lectura inicial marca los procesos detectados en el panel del item.
 
 La detección inicial no bloquea la operación manual: cualquier check puede marcarse o desmarcarse desde el detalle del acopio y ese valor queda persistido. Al volver a abrir el acopio no se reinterpreta el texto del item, para evitar que una decisión manual sea sobrescrita.
+
+Cuando un usuario corrige manualmente los procesos de un item, el sistema registra la evidencia en `correcciones_proceso` y genera reglas candidatas en `reglas_proceso`. Las reglas se pueden simular antes de aprobarlas. Solo las reglas con estado `aprobada` se aplican en nuevas inferencias de procesos para altas de acopios y snapshots SPF; las reglas propuestas quedan como auditoría hasta aprobación manual.
 
 Reglas interpretativas principales:
 

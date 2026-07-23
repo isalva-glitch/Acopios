@@ -12,9 +12,9 @@ from .models import (
 from services.proceso_inference import (
     PROCESS_FIELDS,
     PROCESS_UNITS,
-    infer_item_processes_from_texts,
 )
-from services.composicion_normalization import normalizar_composicion
+from services.composicion_normalization import normalizar_composicion_con_reglas
+from services.process_learning_service import infer_item_processes_with_learning
 
 # Status mapping for SpfPedido.estado_id
 ESTADOS_PEDIDO = {
@@ -149,7 +149,7 @@ def summarize_spf_items_processes(db: Session, items):
                 for comp in item.complementos
             ),
         ]
-        inferred = infer_item_processes_from_texts(texts)
+        inferred = infer_item_processes_with_learning(db, texts)
 
         for field in PROCESS_FIELDS:
             if not inferred[field]:
@@ -180,7 +180,7 @@ def summarize_spf_item_processes(db: Session, item, complement_names=None):
             for comp in item.complementos
         ),
     ]
-    composicion = normalizar_composicion(texts)
+    composicion = normalizar_composicion_con_reglas(db, texts)
     procesos = []
     for field in PROCESS_FIELDS:
         if not composicion.procesos[field]:

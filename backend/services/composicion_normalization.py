@@ -213,6 +213,26 @@ def normalizar_composicion(texts: Iterable[object]) -> ComposicionNormalizada:
     )
 
 
+def normalizar_composicion_con_reglas(db, texts: Iterable[object]) -> ComposicionNormalizada:
+    """Build composition using approved supervised process rules."""
+    from services.process_learning_service import apply_approved_process_rules
+
+    original_text = _joined_text(texts)
+    text = _canonical_text([original_text])
+    procesos, _applied = apply_approved_process_rules(
+        db,
+        [text],
+        base_flags=infer_item_processes_from_texts([text]),
+    )
+    components = _extract_components(text, procesos)
+    return ComposicionNormalizada(
+        texto_normalizado=text,
+        componentes=components,
+        procesos=procesos,
+        firma="|".join(components),
+    )
+
+
 def normalizar_item_acopio(item) -> ComposicionNormalizada:
     return normalizar_composicion([
         item.descripcion,

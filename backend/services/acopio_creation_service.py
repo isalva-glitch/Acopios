@@ -11,7 +11,7 @@ from services import acopio_service
 from services.acopio_creation_models import (
     NormalizedAcopioData, NormalizedItem, NormalizedPano, NormalizedPresupuesto, NormalizedAdicional
 )
-from services.proceso_inference import infer_normalized_item_processes
+from services.process_learning_service import infer_item_processes_with_learning
 
 
 class AcopioCreationService:
@@ -223,7 +223,13 @@ class AcopioCreationService:
             
         # 5. Create Items & Panos
         for it_data in data.items:
-            process_flags = infer_normalized_item_processes(it_data)
+            process_flags = infer_item_processes_with_learning(db, [
+                it_data.descripcion,
+                it_data.material,
+                it_data.tipologia,
+                *(pano.denominacion for pano in it_data.panos),
+                *(adicional.descripcion for adicional in it_data.adicionales),
+            ])
             item = AcopioItem(
                 acopio_id=acopio.id,
                 numero_item=it_data.numero_item,

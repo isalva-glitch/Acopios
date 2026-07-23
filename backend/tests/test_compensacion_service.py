@@ -129,6 +129,116 @@ def test_resumen_compensacion_valoriza_diferencias_positivas_y_negativas(db_sess
     assert resumen["warnings"] == []
 
 
+def test_resumen_compensacion_completa_procesos_faltantes_en_snapshot_monolitico(db_session):
+    acopio = Acopio(
+        numero="000212248",
+        fecha_alta=date.today(),
+        total_m2=Decimal("101.47"),
+        total_ml=Decimal("220.00"),
+        total_pesos=Decimal("1000.00"),
+        total_unidades=69,
+        saldo_m2=Decimal("101.47"),
+        saldo_ml=Decimal("220.00"),
+        saldo_pesos=Decimal("1000.00"),
+        saldo_unidades=69,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+
+    item = AcopioItem(
+        acopio_id=acopio.id,
+        numero_item=69,
+        descripcion="Mirage 5 mm. Incoloro con Borde Pulido Brillante en maquina retilinea.",
+        cantidad=69,
+        total_m2=Decimal("101.47"),
+        total_ml=Decimal("220.00"),
+        total_pesos=Decimal("1000.00"),
+        saldo_m2=Decimal("101.47"),
+        saldo_ml=Decimal("220.00"),
+        saldo_pesos=Decimal("1000.00"),
+        saldo_cantidad=69,
+        proceso_vidrio_interior=True,
+        proceso_pulido=True,
+    )
+    db_session.add(item)
+    db_session.flush()
+
+    db_session.add_all([
+        AcopioItemPrecioReferencia(
+            acopio_id=acopio.id,
+            acopio_item_id=item.id,
+            concepto="vidrio_interior",
+            unidad="m2",
+            precio_base=Decimal("41092.12"),
+            precio_actual=Decimal("41092.12"),
+            habilitado=True,
+            origen="manual",
+        ),
+        AcopioItemPrecioReferencia(
+            acopio_id=acopio.id,
+            acopio_item_id=item.id,
+            concepto="pulido",
+            unidad="ml",
+            precio_base=Decimal("1.00"),
+            precio_actual=Decimal("1.00"),
+            habilitado=True,
+            origen="manual",
+        ),
+    ])
+
+    pedido = Pedido(
+        numero="PED-212248",
+        fecha=date.today(),
+        total_m2=Decimal("101.47"),
+        total_ml=Decimal("220.00"),
+        total_pesos=Decimal("1000.00"),
+    )
+    db_session.add(pedido)
+    db_session.flush()
+
+    imputacion = Imputacion(
+        pedido_id=pedido.id,
+        acopio_id=acopio.id,
+        acopio_item_id=item.id,
+        cantidad_m2=Decimal("101.47"),
+        cantidad_ml=Decimal("220.00"),
+        cantidad_pesos=Decimal("1000.00"),
+        cantidad_unidades=69,
+        pedido_item_descripcion="Mirage 5 mm. Incoloro con Borde Pulido Brillante en maquina retilinea.",
+    )
+    db_session.add(imputacion)
+    db_session.flush()
+
+    # Snapshot historico incompleto: el pedido guardo Pulido, pero todavia no
+    # guardaba Vidrio Interior para vidrios monoliticos.
+    db_session.add(ImputacionProceso(
+        imputacion_id=imputacion.id,
+        proceso="pulido",
+        unidad="ml",
+        cantidad=Decimal("220.00"),
+        origen="composicion_pedido",
+    ))
+    db_session.commit()
+
+    resumen = build_resumen_compensacion(db_session, acopio.id)
+    rows = {row["proceso"]: row for row in resumen["rows"]}
+
+    assert rows["vidrio_interior"]["cantidad_acopio"] == 101.47
+    assert rows["vidrio_interior"]["cantidad_pedidos"] == 101.47
+    assert rows["vidrio_interior"]["diferencia"] == 0
+    assert rows["vidrio_interior"]["pedidos"] == [
+        {
+            "imputacion_id": imputacion.id,
+            "pedido_id": pedido.id,
+            "pedido_numero": "PED-212248",
+            "cantidad": 101.47,
+            "origen": "prorrateado",
+        }
+    ]
+    assert rows["vidrio_interior"]["items_valorizacion"][0]["cantidad_pedidos"] == 101.47
+    assert rows["pulido"]["cantidad_pedidos"] == 220
+
+
 def test_resumen_compensacion_usa_precio_por_item_y_concepto(db_session):
     acopio = Acopio(
         numero="COMP-ITEM",

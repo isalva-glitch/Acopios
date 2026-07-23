@@ -33,6 +33,10 @@ from services.item_precios_referencia_service import (
     save_item_reference_prices,
     sync_item_reference_prices,
 )
+from services.process_learning_service import (
+    process_flags_from_item,
+    register_item_process_correction,
+)
 
 
 router = APIRouter()
@@ -561,8 +565,17 @@ async def update_acopio_item_procesos(
             detail="Acopio item not found"
         )
 
+    before_processes = process_flags_from_item(item)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(item, f"proceso_{field}", bool(value))
+    after_processes = process_flags_from_item(item)
+    register_item_process_correction(
+        db,
+        item,
+        before_processes,
+        after_processes,
+        origin="manual",
+    )
     item.procesos_autodetectados = True
     sync_item_reference_prices(
         db,

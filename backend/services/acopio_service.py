@@ -9,7 +9,7 @@ from models import (
     Documento, ExtraccionIA, EstadoAcopio
 )
 from services.acopio_creation_service import AcopioCreationService
-from services.proceso_inference import infer_item_processes_from_texts
+from services.process_learning_service import infer_item_processes_with_learning
 
 
 def get_or_create_cliente(db: Session, nombre: str) -> Cliente:
@@ -100,7 +100,7 @@ def create_from_extraction(db: Session, extraction_package: Dict[str, Any]) -> A
             for pano_data in extraction_package.get("panos", [])
             if pano_data.get("item_index") == idx + 1
         ]
-        item_process_flags = infer_item_processes_from_texts([
+        item_process_flags = infer_item_processes_with_learning(db, [
             item_data.get("descripcion"),
             item_data.get("material"),
             item_data.get("tipologia"),

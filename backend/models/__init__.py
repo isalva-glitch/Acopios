@@ -18,6 +18,7 @@ from models.documento import Documento
 from models.extraccion_ia import ExtraccionIA
 from models.precio_referencia import PrecioReferencia
 from models.acopio_item_precio_referencia import AcopioItemPrecioReferencia
+from models.proceso_learning import CorreccionProceso, ReglaProceso
 
 __all__ = [
     "BaseModel",
@@ -43,4 +44,6 @@ __all__ = [
     "ExtraccionIA",
     "PrecioReferencia",
     "AcopioItemPrecioReferencia",
+    "CorreccionProceso",
+    "ReglaProceso",
 ]

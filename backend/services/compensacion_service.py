@@ -114,6 +114,14 @@ def _snapshot_processes_for_compensacion(imputacion) -> list:
     return procesos
 
 
+def _snapshot_process_fields(imputacion) -> set[str]:
+    return {
+        proceso.proceso
+        for proceso in (imputacion.procesos or [])
+        if proceso.proceso in PROCESS_FIELDS and _to_decimal(proceso.cantidad) != 0
+    }
+
+
 def _add_item_process_total(totals: dict, item_id: int, field: str, cantidad: Decimal) -> None:
     if item_id is None or cantidad == 0:
         return
@@ -197,6 +205,7 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
         pedido_id = imputacion.pedido_id
         pedido_numero = imputacion.pedido.numero if imputacion.pedido else str(pedido_id)
 
+        snapshot_fields = _snapshot_process_fields(imputacion)
         procesos_snapshot = _snapshot_processes_for_compensacion(imputacion)
         if procesos_snapshot:
             for proceso in procesos_snapshot:
@@ -217,7 +226,8 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
                     "cantidad": _as_float(cantidad),
                     "origen": proceso.origen or "composicion_pedido",
                 })
-            continue
+            if not (imputacion.acopio_item_id and imputacion.acopio_item_id in item_map):
+                continue
 
         imp_m2 = _to_decimal(imputacion.cantidad_m2)
         imp_ml = _to_decimal(imputacion.cantidad_ml)
@@ -246,6 +256,8 @@ def _build_pedido_process_totals(acopio: Acopio, warnings: list[str]) -> tuple[d
             item_total_ml = _to_decimal(item.total_ml)
 
             for field in PROCESS_FIELDS:
+                if field in snapshot_fields:
+                    continue
                 if not bool(getattr(item, f"proceso_{field}", False)):
                     continue
 
@@ -287,6 +299,7 @@ def _build_pedido_item_process_totals(acopio: Acopio, warnings: list[str]) -> di
     acopio_total_ml = sum(_to_decimal(it.total_ml) for it in acopio.items)
 
     for imputacion in acopio.imputaciones:
+        snapshot_fields = _snapshot_process_fields(imputacion)
         procesos_snapshot = _snapshot_processes_for_compensacion(imputacion)
         if procesos_snapshot:
             for proceso in procesos_snapshot:
@@ -304,7 +317,8 @@ def _build_pedido_item_process_totals(acopio: Acopio, warnings: list[str]) -> di
                     imputacion.acopio_item_id,
                     warnings,
                 )
-            continue
+            if not (imputacion.acopio_item_id and imputacion.acopio_item_id in item_map):
+                continue
 
         imp_m2 = _to_decimal(imputacion.cantidad_m2)
         imp_ml = _to_decimal(imputacion.cantidad_ml)
@@ -328,6 +342,8 @@ def _build_pedido_item_process_totals(acopio: Acopio, warnings: list[str]) -> di
             item_total_ml = _to_decimal(item.total_ml)
 
             for field in PROCESS_FIELDS:
+                if field in snapshot_fields:
+                    continue
                 if not bool(getattr(item, f"proceso_{field}", False)):
                     continue
 
