@@ -110,13 +110,18 @@ def test_get_pedido_for_imputation_uses_decimal_for_money_totals():
         SpfItemComplemento(cantidad=1, total_complemento=Decimal("0.20")),
     ]
 
-    pedido_query = MagicMock()
-    pedido_query.filter.return_value.first.return_value = pedido
-    items_query = MagicMock()
-    items_query.filter.return_value.all.return_value = [item]
-    talonario_query = MagicMock()
-    talonario_query.filter.return_value.all.return_value = []
-    mock_db.query.side_effect = [pedido_query, items_query, talonario_query]
+    def query_handler(model, *args):
+        m = MagicMock()
+        if model is SpfPedido:
+            m.filter.return_value.first.return_value = pedido
+        elif model is SpfItem:
+            m.filter.return_value.all.return_value = [item]
+        else:
+            m.filter.return_value.all.return_value = []
+            m.filter.return_value.first.return_value = None
+        return m
+
+    mock_db.query.side_effect = query_handler
 
     result = get_pedido_for_imputation(mock_db, "23365")
 
