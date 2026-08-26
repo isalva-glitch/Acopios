@@ -23,7 +23,13 @@ function ListaAcopios() {
             const response = await apiClient.get<Acopio[]>('/acopios', { params });
             setAcopios(response.data);
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Error al cargar acopios');
+            const detail = err.response?.data?.detail;
+            const msg = typeof detail === 'string'
+                ? detail
+                : (Array.isArray(detail)
+                    ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
+                    : (detail ? JSON.stringify(detail) : (err.message ? `Error de conexión: ${err.message}` : 'Error al cargar acopios')));
+            setError(msg);
         } finally {
             setLoading(false);
         }

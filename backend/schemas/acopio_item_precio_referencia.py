@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 UnidadPrecioReferencia = Literal["m2", "ml", "unidad"]
-OrigenPrecioReferencia = Literal["autodetectado", "manual", "migrado"]
+OrigenPrecioReferencia = str
 EstadoPreciosReferencia = Literal["completo", "incompleto", "sin_conceptos", "revisar"]
 
 

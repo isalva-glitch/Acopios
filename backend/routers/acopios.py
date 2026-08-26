@@ -344,40 +344,46 @@ async def list_acopios(
     db: Session = Depends(get_db)
 ):
     """List acopios with optional filters."""
-    query = db.query(Acopio)
+    try:
+        query = db.query(Acopio)
 
-    if not incluir_paquete:
-        query = query.filter(Acopio.paquete_id.is_(None))
-    
-    if obra_id:
-        query = query.filter(Acopio.obra_id == obra_id)
-    
-    if estado:
-        query = query.filter(Acopio.estado == estado)
-    
-    acopios = query.all()
-    
-    return [
-        AcopioResponse(
-            id=a.id,
-            numero=a.numero,
-            obra_id=a.obra_id,
-            fecha_alta=a.fecha_alta.isoformat() if a.fecha_alta else "",
-            fecha_vencimiento=a.fecha_vencimiento.isoformat() if a.fecha_vencimiento else None,
-            estado=a.estado.value if hasattr(a.estado, 'value') else str(a.estado),
-            total_m2=a.total_m2 or Decimal('0'),
-            total_ml=a.total_ml or Decimal('0'),
-            total_pesos=a.total_pesos or Decimal('0'),
-            total_unidades=a.total_unidades or 0,
-            saldo_m2=a.saldo_m2 or Decimal('0'),
-            saldo_ml=a.saldo_ml or Decimal('0'),
-            saldo_pesos=a.saldo_pesos or Decimal('0'),
-            saldo_unidades=a.saldo_unidades or 0,
-            cliente=(a.obra.cliente.nombre if a.obra and a.obra.cliente else None),
-            obra=(a.obra.nombre if a.obra else None)
+        if not incluir_paquete:
+            query = query.filter(Acopio.paquete_id.is_(None))
+        
+        if obra_id:
+            query = query.filter(Acopio.obra_id == obra_id)
+        
+        if estado:
+            query = query.filter(Acopio.estado == estado)
+        
+        acopios = query.all()
+        
+        return [
+            AcopioResponse(
+                id=a.id,
+                numero=a.numero,
+                obra_id=a.obra_id,
+                fecha_alta=a.fecha_alta.isoformat() if a.fecha_alta else "",
+                fecha_vencimiento=a.fecha_vencimiento.isoformat() if a.fecha_vencimiento else None,
+                estado=a.estado.value if hasattr(a.estado, 'value') else str(a.estado),
+                total_m2=a.total_m2 or Decimal('0'),
+                total_ml=a.total_ml or Decimal('0'),
+                total_pesos=a.total_pesos or Decimal('0'),
+                total_unidades=a.total_unidades or 0,
+                saldo_m2=a.saldo_m2 or Decimal('0'),
+                saldo_ml=a.saldo_ml or Decimal('0'),
+                saldo_pesos=a.saldo_pesos or Decimal('0'),
+                saldo_unidades=a.saldo_unidades or 0,
+                cliente=(a.obra.cliente.nombre if a.obra and a.obra.cliente else None),
+                obra=(a.obra.nombre if a.obra else None)
+            )
+            for a in acopios
+        ]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al listar acopios: {str(e)}"
         )
-        for a in acopios
-    ]
 
 
 @router.get("/{acopio_id}")
@@ -394,123 +400,133 @@ async def get_acopio_detail(
             detail="Acopio not found"
         )
 
-    if acopio.imputaciones:
-        recalculate_excedentes_for_acopio(db, acopio_id)
-        db.refresh(acopio)
+    try:
+        if acopio.imputaciones:
+            try:
+                recalculate_excedentes_for_acopio(db, acopio_id)
+                db.refresh(acopio)
+            except Exception as rec_err:
+                db.rollback()
+                print(f"Warning: Failed to recalculate excedentes for acopio {acopio_id}: {rec_err}")
 
-    normalized_v_presupuesto_id = normalize_presupuesto_id(acopio.v_presupuesto_id)
-    
-    return {
-        "id": acopio.id,
-        "numero": acopio.numero,
-        "obra": {
-            "id": acopio.obra.id,
-            "nombre": acopio.obra.nombre,
-            "cliente": {
-                "id": acopio.obra.cliente.id if acopio.obra.cliente else None,
-                "nombre": acopio.obra.cliente.nombre if acopio.obra.cliente else "Desconocido"
-            }
-        } if acopio.obra else None,
-        "cliente_id": acopio.cliente_id,
-        "origen_datos": acopio.origen_datos,
-        "v_presupuesto_id": normalized_v_presupuesto_id,
-        "paquete": {
-            "id": acopio.paquete.id,
-            "numero": acopio.paquete.numero,
-            "nombre": acopio.paquete.nombre,
-        } if acopio.paquete else None,
-        "fecha_alta": acopio.fecha_alta.isoformat() if acopio.fecha_alta else None,
-        "fecha_vencimiento": acopio.fecha_vencimiento.isoformat() if acopio.fecha_vencimiento else None,
-        "estado": acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
-        "totals": {
-            "m2": float(acopio.total_m2 or 0),
-            "ml": float(acopio.total_ml or 0),
-            "pesos": float(acopio.total_pesos or 0),
-            "unidades": acopio.total_unidades or 0
-        },
-        "saldos": {
-            "m2": float(acopio.saldo_m2 or 0),
-            "ml": float(acopio.saldo_ml or 0),
-            "pesos": float(acopio.saldo_pesos or 0),
-            "unidades": acopio.saldo_unidades or 0
-        },
-        "presupuestos": [
-            {
-                "id": p.id,
-                "numero": normalize_presupuesto_id(p.numero) or p.numero,
-                "fecha": p.fecha.isoformat() if p.fecha else None
-            }
-            for p in acopio.presupuestos
-        ],
-        "items": [
-            {
-                "id": item.id,
-                "descripcion": item.descripcion,
-                "material": item.material,
-                "tipologia": item.tipologia,
-                "cantidad": item.cantidad,
-                "totals": {
-                    "m2": float(item.total_m2 or 0),
-                    "ml": float(item.total_ml or 0),
-                    "pesos": float(item.total_pesos or 0),
-                    "unidades": item.cantidad or 0
-                },
-                "saldos": {
-                    "m2": float(item.saldo_m2 or 0),
-                    "ml": float(item.saldo_ml or 0),
-                    "pesos": float(item.saldo_pesos or 0),
-                    "unidades": item.saldo_cantidad or 0
-                },
-                "procesos": item_procesos_to_dict(item),
-                "procesos_detalle": item_procesos_detalle_to_dict(item),
-                "panos": [
-                    {
-                        "id": pano.id,
-                        "cantidad": pano.cantidad or 1,
-                        "ancho": float(pano.ancho or 0),
-                        "alto": float(pano.alto or 0),
-                        "superficie_m2": float(pano.superficie_m2 or 0),
-                        "perimetro_ml": float(pano.perimetro_ml or 0)
-                    }
-                    for pano in item.panos
-                ],
-                "adicionales": [
-                    {
-                        "id": adc.id,
-                        "cantidad": adc.cantidad or 1,
-                        "descripcion": adc.descripcion,
-                        "precio_unitario": float(adc.precio_unitario or 0),
-                        "precio_total": float(adc.precio_total or 0),
-                        "tipo": adc.tipo,
-                        "origen": adc.origen
-                    }
-                    for adc in item.adicionales
-                ]
-            }
-            for item in sorted(acopio.items, key=lambda x: (x.numero_item if x.numero_item is not None else 0, x.id or 0))
-        ],
-        "imputaciones": [
-            {
-                "id": imp.id,
-                "pedido_id": imp.pedido_id,
-                "pedido_numero": imp.pedido.numero if imp.pedido else None,
-                "cantidad_m2": float(imp.cantidad_m2 or 0),
-                "cantidad_ml": float(imp.cantidad_ml or 0),
-                "cantidad_pesos": float(imp.cantidad_pesos or 0),
-                "cantidad_unidades": imp.cantidad_unidades or 0,
-                "es_excedente": imp.es_excedente or False,
-                "excedente_tipo": imp.excedente_tipo,
-                "excedente_motivo": imp.excedente_motivo,
-                "fecha": imp.pedido.fecha.isoformat() if imp.pedido and imp.pedido.fecha else None,
-                "acopio_item_id": imp.acopio_item_id,
-                "pedido_item_descripcion": imp.pedido_item_descripcion,
-                "composicion_match_estado": imp.composicion_match_estado,
-                "composicion_match_score": float(imp.composicion_match_score or 0),
-                "composicion_advertencia": imp.composicion_advertencia,
-            }
-            for imp in acopio.imputaciones
-        ]
-    }
+        normalized_v_presupuesto_id = normalize_presupuesto_id(acopio.v_presupuesto_id)
+        
+        return {
+            "id": acopio.id,
+            "numero": acopio.numero,
+            "obra": {
+                "id": acopio.obra.id,
+                "nombre": acopio.obra.nombre,
+                "cliente": {
+                    "id": acopio.obra.cliente.id if acopio.obra.cliente else None,
+                    "nombre": acopio.obra.cliente.nombre if acopio.obra.cliente else "Desconocido"
+                }
+            } if acopio.obra else None,
+            "cliente_id": acopio.cliente_id,
+            "origen_datos": acopio.origen_datos,
+            "v_presupuesto_id": normalized_v_presupuesto_id,
+            "paquete": {
+                "id": acopio.paquete.id,
+                "numero": acopio.paquete.numero,
+                "nombre": acopio.paquete.nombre,
+            } if acopio.paquete else None,
+            "fecha_alta": acopio.fecha_alta.isoformat() if acopio.fecha_alta else None,
+            "fecha_vencimiento": acopio.fecha_vencimiento.isoformat() if acopio.fecha_vencimiento else None,
+            "estado": acopio.estado.value if hasattr(acopio.estado, 'value') else str(acopio.estado),
+            "totals": {
+                "m2": float(acopio.total_m2 or 0),
+                "ml": float(acopio.total_ml or 0),
+                "pesos": float(acopio.total_pesos or 0),
+                "unidades": acopio.total_unidades or 0
+            },
+            "saldos": {
+                "m2": float(acopio.saldo_m2 or 0),
+                "ml": float(acopio.saldo_ml or 0),
+                "pesos": float(acopio.saldo_pesos or 0),
+                "unidades": acopio.saldo_unidades or 0
+            },
+            "presupuestos": [
+                {
+                    "id": p.id,
+                    "numero": normalize_presupuesto_id(p.numero) or p.numero,
+                    "fecha": p.fecha.isoformat() if p.fecha else None
+                }
+                for p in acopio.presupuestos
+            ],
+            "items": [
+                {
+                    "id": item.id,
+                    "descripcion": item.descripcion,
+                    "material": item.material,
+                    "tipologia": item.tipologia,
+                    "cantidad": item.cantidad,
+                    "totals": {
+                        "m2": float(item.total_m2 or 0),
+                        "ml": float(item.total_ml or 0),
+                        "pesos": float(item.total_pesos or 0),
+                        "unidades": item.cantidad or 0
+                    },
+                    "saldos": {
+                        "m2": float(item.saldo_m2 or 0),
+                        "ml": float(item.saldo_ml or 0),
+                        "pesos": float(item.saldo_pesos or 0),
+                        "unidades": item.saldo_cantidad or 0
+                    },
+                    "procesos": item_procesos_to_dict(item),
+                    "procesos_detalle": item_procesos_detalle_to_dict(item),
+                    "panos": [
+                        {
+                            "id": pano.id,
+                            "cantidad": pano.cantidad or 1,
+                            "ancho": float(pano.ancho or 0),
+                            "alto": float(pano.alto or 0),
+                            "superficie_m2": float(pano.superficie_m2 or 0),
+                            "perimetro_ml": float(pano.perimetro_ml or 0)
+                        }
+                        for pano in item.panos
+                    ],
+                    "adicionales": [
+                        {
+                            "id": adc.id,
+                            "cantidad": adc.cantidad or 1,
+                            "descripcion": adc.descripcion,
+                            "precio_unitario": float(adc.precio_unitario or 0),
+                            "precio_total": float(adc.precio_total or 0),
+                            "tipo": adc.tipo,
+                            "origen": adc.origen
+                        }
+                        for adc in item.adicionales
+                    ]
+                }
+                for item in sorted(acopio.items, key=lambda x: (x.numero_item if x.numero_item is not None else 0, x.id or 0))
+            ],
+            "imputaciones": [
+                {
+                    "id": imp.id,
+                    "pedido_id": imp.pedido_id,
+                    "pedido_numero": imp.pedido.numero if imp.pedido else None,
+                    "cantidad_m2": float(imp.cantidad_m2 or 0),
+                    "cantidad_ml": float(imp.cantidad_ml or 0),
+                    "cantidad_pesos": float(imp.cantidad_pesos or 0),
+                    "cantidad_unidades": imp.cantidad_unidades or 0,
+                    "es_excedente": imp.es_excedente or False,
+                    "excedente_tipo": imp.excedente_tipo,
+                    "excedente_motivo": imp.excedente_motivo,
+                    "fecha": imp.pedido.fecha.isoformat() if imp.pedido and imp.pedido.fecha else None,
+                    "acopio_item_id": imp.acopio_item_id,
+                    "pedido_item_descripcion": imp.pedido_item_descripcion,
+                    "composicion_match_estado": imp.composicion_match_estado,
+                    "composicion_match_score": float(imp.composicion_match_score or 0),
+                    "composicion_advertencia": imp.composicion_advertencia,
+                }
+                for imp in acopio.imputaciones
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al cargar el detalle del acopio #{acopio_id}: {str(e)}"
+        )
 
 
 @router.patch("/{acopio_id}")

@@ -174,7 +174,13 @@ function DetalleAcopio() {
                 loadAvanceComercial(id!);
             }
         } catch (err: any) {
-            setError(err.response?.data?.detail || 'Error al cargar el acopio');
+            const detail = err.response?.data?.detail;
+            const msg = typeof detail === 'string'
+                ? detail
+                : (Array.isArray(detail)
+                    ? detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ')
+                    : (detail ? JSON.stringify(detail) : (err.message ? `Error de conexión: ${err.message}` : 'Error al cargar el acopio')));
+            setError(msg);
         } finally {
             setLoading(false);
         }
