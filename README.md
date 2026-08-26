@@ -125,9 +125,9 @@ Acopios/
 - `POST /aprendizaje-procesos/reglas/{id}/desactivar` - Desactivar una regla aprobada o candidata
 
 ### Reportes / Informes
-- `GET /reportes/acopios-activos` - Acopios con saldo
-- `GET /reportes/excedentes` - Imputaciones excedentes
-- `GET /reportes/vencimientos-precio` - Próximos vencimientos
+- `GET /reportes/acopios-activos` - Acopios con saldo (soporta `incluir_paquetes: bool`)
+- `GET /reportes/excedentes` - Imputaciones excedentes (retorna metadatos de paquetes, motivo y tipo de excedente)
+- `GET /reportes/vencimientos-precio` - Próximos vencimientos (soporta `incluir_paquetes: bool` y retorno de `dias_restantes`)
 
 ## UX: Informes Ejecutivos
 
@@ -138,9 +138,11 @@ La ruta `/reportes` se presenta como **Informes**, un tablero operativo con grá
 - Incluye buscador por obra, cliente, acopio o pedido.
 - Agrega filtros por obra, cliente, estado y rango de fechas, con botón para limpiar filtros activos.
 - Muestra KPIs de importe analizado, registros, m², ml y alertas.
+- Distingue origen mediante badges interactivos (`📦 Paquete` vs `📄 Individual`) en la tabla ejecutiva.
+- Resalta días restantes de vencimiento con código de color (alertas para vencimientos en 15 días o menos).
 - Grafica barras por obra, distribución por estado y línea temporal mensual del importe filtrado.
 - Calcula una lectura rápida de concentración, promedio por registro, filtros aplicados y estado del tablero.
-- Mantiene una tabla ejecutiva unificada para inspección operativa.
+- Mantiene una tabla ejecutiva unificada para inspección operativa con cabeceras dinámicas según KPI.
 
 ## UX: Acopio x Paquete de Obras
 
@@ -177,11 +179,12 @@ Las imputaciones nuevas y los datos históricos comparten la misma regla monetar
 - El reporte de excedentes no lista una imputación marcada por una regla vieja si el recálculo actual determina que no hay excedente real.
 - `imputaciones.excedente_motivo` usa tipo `Text` desde la migración `20260706_1326_b9b2f03f1d9f_change_excedente_motivo_to_text` para preservar motivos largos de recálculo y auditoría.
 
-## UX: Ancho de Acopios
+## UX: Ancho de Acopios y Filtros Visuales
 
 El listado `/acopios` y el detalle `/acopios/:id` usan contenedores específicos para evitar barras de desplazamiento innecesarias en escritorio sin afectar alta de acopios ni otras pantallas.
 
 - `/acopios` usa un contenedor más ancho y columnas compactas para que los saldos y acciones entren en la vista principal.
+- Reemplaza el selector desplegable tradicional por botones interactivos de filtrado rápido por estado (`Todos`, `Activo`, `Pendiente`, `Parcialmente Consumido`, `Consumido`, `Cancelado`).
 - `/acopios/:id` usa todo el ancho disponible y cortes responsivos para items, totales y consumos.
 - Las tablas conservan scroll horizontal solo como respaldo cuando el contenido no puede reducirse más.
 

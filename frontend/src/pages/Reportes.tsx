@@ -27,14 +27,25 @@ type DashboardRow = {
     obra?: string;
     cliente?: string;
     estado?: string;
+    es_paquete?: boolean;
+    paquete_id?: number | null;
+    paquete_nombre?: string | null;
+    paquete_numero?: string | null;
+    tipo_origen?: string;
+    total_m2?: number;
+    total_ml?: number;
+    total_pesos?: number;
     saldo_m2?: number;
     saldo_ml?: number;
     saldo_pesos?: number;
     cantidad_m2?: number;
     cantidad_ml?: number;
     cantidad_pesos?: number;
+    excedente_tipo?: string;
+    excedente_motivo?: string;
     fecha?: string;
     fecha_alta?: string;
+    fecha_vencimiento_precio?: string | null;
     fecha_vencimiento?: string | null;
     dias_restantes?: number | null;
 };
@@ -43,19 +54,19 @@ const reportes = [
     {
         key: 'acopios-activos',
         label: 'Acopios activos',
-        description: 'Saldos disponibles por obra y cliente',
+        description: 'Saldos remanentes disponibles por obra y cliente',
         responseKey: 'acopios',
     },
     {
         key: 'excedentes',
         label: 'Excedentes',
-        description: 'Consumos por encima de lo contratado',
+        description: 'Consumos que superan el presupuesto contratado',
         responseKey: 'excedentes',
     },
     {
         key: 'vencimientos-precio',
-        label: 'Vencimientos',
-        description: 'Acopios proximos a vencer por precio',
+        label: 'Vencimientos de precio',
+        description: 'Acopios con plazo de precio congelado por vencer',
         responseKey: 'vencimientos',
     },
 ] as const;
@@ -76,7 +87,7 @@ function parseDateValue(value: string | null | undefined) {
 }
 
 function getRowDate(item: DashboardRow) {
-    return parseDateValue(item.fecha_vencimiento || item.fecha || item.fecha_alta);
+    return parseDateValue(item.fecha_vencimiento_precio || item.fecha_vencimiento || item.fecha || item.fecha_alta);
 }
 
 function formatDate(value: string | null | undefined) {
@@ -92,14 +103,14 @@ function getEstadoVisual(item: DashboardRow, selectedReport: ReportType, fallbac
     if (item.estado) return item.estado;
 
     if (selectedReport === 'excedentes') {
-        return 'Excedido';
+        return item.excedente_tipo || 'Excedido';
     }
 
     if (selectedReport === 'vencimientos-precio') {
         const diasRestantes = toNumber(item.dias_restantes);
         if (diasRestantes < 0) return 'Vencido';
-        if (diasRestantes <= 15) return 'Vence <= 15 dias';
-        return 'Vence 16-30 dias';
+        if (diasRestantes <= 15) return 'Vence <= 15 días';
+        return 'Vence 16-30 días';
     }
 
     return fallback;
@@ -115,6 +126,8 @@ function Reportes() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [filtroTexto, setFiltroTexto] = useState('');
+    // Por defecto filtramos SOLO acopios individuales para aislar los sub-acopios de paquetes
+    const [tipoFiltro, setTipoFiltro] = useState('individual');
     const [estadoFiltro, setEstadoFiltro] = useState('todos');
     const [obraFiltro, setObraFiltro] = useState('todos');
     const [clienteFiltro, setClienteFiltro] = useState('todos');
@@ -201,6 +214,7 @@ function Reportes() {
                 item.numero,
                 item.acopio_numero,
                 item.pedido_numero,
+                item.paquete_nombre,
                 item.obra,
                 item.cliente,
             ].filter(Boolean).join(' ').toLowerCase();
@@ -209,6 +223,10 @@ function Reportes() {
             const itemDate = getRowDate(item);
 
             const coincideTexto = !normalizedSearch || searchableText.includes(normalizedSearch);
+            const coincideTipo =
+                tipoFiltro === 'todos' ||
+                (tipoFiltro === 'paquete' && item.es_paquete) ||
+                (tipoFiltro === 'individual' && !item.es_paquete);
             const coincideEstado = estadoFiltro === 'todos' || estadoVisual === estadoFiltro;
             const coincideObra = obraFiltro === 'todos' || item.obra === obraFiltro;
             const coincideCliente = clienteFiltro === 'todos' || item.cliente === clienteFiltro;
@@ -217,6 +235,7 @@ function Reportes() {
 
             return (
                 coincideTexto &&
+                coincideTipo &&
                 coincideEstado &&
                 coincideObra &&
                 coincideCliente &&
@@ -234,6 +253,7 @@ function Reportes() {
         obraFiltro,
         selectedInfo.label,
         selectedReport,
+        tipoFiltro,
     ]);
 
     const metricas = useMemo(() => {
@@ -245,16 +265,22 @@ function Reportes() {
             return sum + toNumber(item.saldo_ml ?? item.cantidad_ml);
         }, 0);
 
-        const alertas = filteredData.filter((item) => {
+        const alertasCount = filteredData.filter((item) => {
+            if (selectedReport === 'acopios-activos') {
+                const dias = item.dias_restantes;
+                return (dias !== null && dias !== undefined && dias <= 30) || item.estado === 'VENCIDO' || item.estado === 'CANCELADO';
+            }
+
             if (selectedReport === 'vencimientos-precio') {
-                return toNumber(item.dias_restantes) <= 15;
+                const dias = item.dias_restantes;
+                return dias !== null && dias !== undefined && dias <= 15;
             }
 
             if (selectedReport === 'excedentes') {
                 return getImporte(item) > 0;
             }
 
-            return toNumber(item.saldo_pesos) > 0;
+            return false;
         }).length;
 
         return {
@@ -262,7 +288,7 @@ function Reportes() {
             totalPesos,
             totalM2,
             totalMl,
-            alertas,
+            alertas: alertasCount,
         };
     }, [filteredData, selectedReport]);
 
@@ -318,10 +344,11 @@ function Reportes() {
 
     const promedioPorRegistro = metricas.registros > 0 ? metricas.totalPesos / metricas.registros : 0;
     const hasActiveFilters =
-        filtroTexto || estadoFiltro !== 'todos' || obraFiltro !== 'todos' || clienteFiltro !== 'todos' || fechaDesde || fechaHasta;
+        filtroTexto || tipoFiltro !== 'individual' || estadoFiltro !== 'todos' || obraFiltro !== 'todos' || clienteFiltro !== 'todos' || fechaDesde || fechaHasta;
 
     const clearFilters = () => {
         setFiltroTexto('');
+        setTipoFiltro('individual');
         setEstadoFiltro('todos');
         setObraFiltro('todos');
         setClienteFiltro('todos');
@@ -329,13 +356,63 @@ function Reportes() {
         setFechaHasta('');
     };
 
+    const getKpiConfig = () => {
+        switch (selectedReport) {
+            case 'excedentes':
+                return {
+                    importeLabel: 'Monto Excedido ($)',
+                    importeSubtext: 'Suma de sobreconsumos sobre el contrato',
+                    m2Label: 'Consumo Excedido (m²)',
+                    m2Subtext: 'Metros cuadrados consumidos en exceso',
+                    mlLabel: 'Consumo Excedido (ml)',
+                    mlSubtext: 'Metros lineales consumidos en exceso',
+                    alertasLabel: 'Registros Excedidos',
+                    alertasSubtext: 'Total de imputaciones por encima del presupuesto',
+                    colM2Header: 'Excedente m²',
+                    colMlHeader: 'Excedente ml',
+                    colImporteHeader: 'Monto Excedido ($)',
+                };
+            case 'vencimientos-precio':
+                return {
+                    importeLabel: 'Monto en Riesgo ($)',
+                    importeSubtext: 'Saldo disponible sujeto a actualización de precio',
+                    m2Label: 'Superficie en Riesgo (m²)',
+                    m2Subtext: 'm² pendientes con vencimiento de precio',
+                    mlLabel: 'Longitud en Riesgo (ml)',
+                    mlSubtext: 'ml pendientes con vencimiento de precio',
+                    alertasLabel: 'Vencimiento Inminente',
+                    alertasSubtext: 'Acopios que vencen en 15 días o menos',
+                    colM2Header: 'Saldo m²',
+                    colMlHeader: 'Saldo ml',
+                    colImporteHeader: 'Monto en Riesgo ($)',
+                };
+            case 'acopios-activos':
+            default:
+                return {
+                    importeLabel: 'Saldo Remanente ($)',
+                    importeSubtext: 'Monto acumulado disponible en acopios vigentes',
+                    m2Label: 'Saldo Disponible (m²)',
+                    m2Subtext: 'Metros cuadrados de cristal a favor',
+                    mlLabel: 'Saldo Disponible (ml)',
+                    mlSubtext: 'Metros lineales a favor',
+                    alertasLabel: 'Próximos a Vencer',
+                    alertasSubtext: 'Acopios con precio a vencer en <= 30 días',
+                    colM2Header: 'Saldo m²',
+                    colMlHeader: 'Saldo ml',
+                    colImporteHeader: 'Saldo Remanente ($)',
+                };
+        }
+    };
+
+    const kpiConfig = getKpiConfig();
+
     return (
         <div className="informes-page">
             <section className="informes-header">
                 <div>
-                    <span className="informes-eyebrow">Panel ejecutivo</span>
-                    <h2>Informes</h2>
-                    <p>Control comercial, operativo y financiero.</p>
+                    <span className="informes-eyebrow">Control comercial, operativo y financiero</span>
+                    <h2>Informes Ejecutivos</h2>
+                    <p>{selectedInfo.description}</p>
                 </div>
 
                 <div className="informes-actions">
@@ -371,14 +448,23 @@ function Reportes() {
                         id="informes-busqueda"
                         value={filtroTexto}
                         onChange={(e) => setFiltroTexto(e.target.value)}
-                        placeholder="Obra, cliente, acopio o pedido"
+                        placeholder="Obra, cliente, paquete, acopio..."
                     />
+                </div>
+
+                <div>
+                    <label htmlFor="informes-tipo">Tipo Contrato</label>
+                    <select id="informes-tipo" value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)}>
+                        <option value="individual">📄 Solo Acopios Individuales (Predeterminado)</option>
+                        <option value="paquete">📦 Solo Acopios de Paquetes</option>
+                        <option value="todos">🌐 Todos los orígenes (Individuales + Paquetes)</option>
+                    </select>
                 </div>
 
                 <div>
                     <label htmlFor="informes-obra">Obra</label>
                     <select id="informes-obra" value={obraFiltro} onChange={(e) => setObraFiltro(e.target.value)}>
-                        <option value="todos">Todas</option>
+                        <option value="todos">Todas las obras</option>
                         {obrasDisponibles.map((obra) => (
                             <option key={obra} value={obra}>
                                 {obra}
@@ -394,7 +480,7 @@ function Reportes() {
                         value={clienteFiltro}
                         onChange={(e) => setClienteFiltro(e.target.value)}
                     >
-                        <option value="todos">Todos</option>
+                        <option value="todos">Todos los clientes</option>
                         {clientesDisponibles.map((cliente) => (
                             <option key={cliente} value={cliente}>
                                 {cliente}
@@ -410,7 +496,7 @@ function Reportes() {
                         value={estadoFiltro}
                         onChange={(e) => setEstadoFiltro(e.target.value)}
                     >
-                        <option value="todos">Todos</option>
+                        <option value="todos">Todos los estados</option>
                         {estadosDisponibles.map((estado) => (
                             <option key={estado} value={estado}>
                                 {estado}
@@ -440,7 +526,7 @@ function Reportes() {
                 </div>
 
                 <div className="informe-contexto">
-                    <span>Informe seleccionado</span>
+                    <span>Viendo informe</span>
                     <strong>{selectedInfo.label}</strong>
                 </div>
 
@@ -454,37 +540,49 @@ function Reportes() {
                 </button>
             </section>
 
+            {tipoFiltro === 'individual' && (
+                <div className="filter-info-callout">
+                    ℹ️ <strong>Vista Aislada:</strong> Se muestran únicamente <strong>Acopios Individuales</strong>. Los acopios que pertenecen a Paquetes de Obras están aislados de esta vista para no duplicar datos; para consultarlos selecciona <em>"Solo Acopios de Paquetes"</em> o ve al menú <strong>Paquetes de Obras</strong>.
+                </div>
+            )}
+
+            {tipoFiltro === 'paquete' && (
+                <div className="filter-info-callout paquete-view">
+                    📦 <strong>Vista de Paquetes:</strong> Se muestran únicamente los acopios integrados dentro de <strong>Paquetes de Acopio</strong>.
+                </div>
+            )}
+
             {error && <div className="error">{error}</div>}
 
             <section className="kpi-grid">
                 <article className="kpi-card primary">
-                    <span>Importe analizado</span>
+                    <span>{kpiConfig.importeLabel}</span>
                     <strong>{formatCurrencyAR(metricas.totalPesos)}</strong>
-                    <small>Total del informe filtrado</small>
+                    <small>{kpiConfig.importeSubtext}</small>
                 </article>
 
                 <article className="kpi-card">
                     <span>Registros</span>
                     <strong>{metricas.registros}</strong>
-                    <small>Resultados visibles</small>
+                    <small>Resultados filtrados</small>
                 </article>
 
                 <article className="kpi-card">
-                    <span>Saldo / consumo m2</span>
+                    <span>{kpiConfig.m2Label}</span>
                     <strong>{formatNumberAR(metricas.totalM2)}</strong>
-                    <small>Metros cuadrados acumulados</small>
+                    <small>{kpiConfig.m2Subtext}</small>
                 </article>
 
                 <article className="kpi-card">
-                    <span>Saldo / consumo ml</span>
+                    <span>{kpiConfig.mlLabel}</span>
                     <strong>{formatNumberAR(metricas.totalMl)}</strong>
-                    <small>Metros lineales acumulados</small>
+                    <small>{kpiConfig.mlSubtext}</small>
                 </article>
 
-                <article className="kpi-card danger">
-                    <span>Alertas</span>
+                <article className={`kpi-card ${metricas.alertas > 0 ? 'danger' : ''}`}>
+                    <span>{kpiConfig.alertasLabel}</span>
                     <strong>{metricas.alertas}</strong>
-                    <small>Casos para seguimiento</small>
+                    <small>{kpiConfig.alertasSubtext}</small>
                 </article>
             </section>
 
@@ -492,8 +590,8 @@ function Reportes() {
                 <article className="dashboard-card chart-card chart-card-wide">
                     <div className="dashboard-card-header">
                         <div>
-                            <h3>Barras por obra</h3>
-                            <p>Saldo o consumo en pesos por obra</p>
+                            <h3>Distribución por Obra</h3>
+                            <p>{kpiConfig.colImporteHeader} acumulado por obra top</p>
                         </div>
                     </div>
 
@@ -529,8 +627,8 @@ function Reportes() {
                 <article className="dashboard-card chart-card">
                     <div className="dashboard-card-header">
                         <div>
-                            <h3>Dona por estado</h3>
-                            <p>Distribucion de registros</p>
+                            <h3>Distribución por Estado</h3>
+                            <p>Proporción de registros en cada estado</p>
                         </div>
                     </div>
 
@@ -573,8 +671,8 @@ function Reportes() {
                 <article className="dashboard-card chart-card">
                     <div className="dashboard-card-header">
                         <div>
-                            <h3>Linea temporal</h3>
-                            <p>Evolucion mensual del importe filtrado</p>
+                            <h3>Línea Temporal</h3>
+                            <p>Evolución mensual del importe analizado</p>
                         </div>
                     </div>
 
@@ -609,14 +707,14 @@ function Reportes() {
                 <article className="dashboard-card insight-card">
                     <div className="dashboard-card-header">
                         <div>
-                            <h3>Lectura rapida</h3>
-                            <p>Indicadores para decision</p>
+                            <h3>Lectura Rápida</h3>
+                            <p>Indicadores clave de resumen</p>
                         </div>
                     </div>
 
                     <div className="insight-list">
                         <div>
-                            <span>Mayor concentracion</span>
+                            <span>Mayor concentración</span>
                             <strong>{topObras[0]?.obra || 'Sin datos'}</strong>
                         </div>
                         <div>
@@ -624,12 +722,12 @@ function Reportes() {
                             <strong>{formatCurrencyAR(promedioPorRegistro)}</strong>
                         </div>
                         <div>
-                            <span>Filtros aplicados</span>
-                            <strong>{hasActiveFilters ? 'Si' : 'No'}</strong>
+                            <span>Filtros activos</span>
+                            <strong>{hasActiveFilters ? 'Sí' : 'No'}</strong>
                         </div>
                         <div>
                             <span>Estado del tablero</span>
-                            <strong>{loading ? 'Actualizando' : 'Actualizado'}</strong>
+                            <strong>{loading ? 'Actualizando...' : 'Actualizado'}</strong>
                         </div>
                     </div>
                 </article>
@@ -638,8 +736,8 @@ function Reportes() {
             <section className="dashboard-card">
                 <div className="dashboard-card-header">
                     <div>
-                        <h3>Tabla ejecutiva</h3>
-                        <p>{filteredData.length} registros encontrados</p>
+                        <h3>Detalle Ejecutivo de Registros</h3>
+                        <p>{filteredData.length} registros encontrados para la selección actual</p>
                     </div>
                 </div>
 
@@ -647,14 +745,15 @@ function Reportes() {
                     <table>
                         <thead>
                             <tr>
-                                <th>Referencia</th>
+                                <th>Referencia / N°</th>
+                                <th>Tipo Origen</th>
                                 <th>Obra</th>
                                 <th>Cliente</th>
                                 <th>Estado</th>
-                                <th>m2</th>
-                                <th>ml</th>
-                                <th>Importe</th>
-                                <th>Fecha / vencimiento</th>
+                                <th>{kpiConfig.colM2Header}</th>
+                                <th>{kpiConfig.colMlHeader}</th>
+                                <th>{kpiConfig.colImporteHeader}</th>
+                                <th>Fecha / Vencimiento</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -662,7 +761,23 @@ function Reportes() {
                                 <tr key={`${item.id || idx}-${item.numero || item.pedido_numero || selectedReport}`}>
                                     <td>
                                         <strong>{item.numero || item.acopio_numero || item.pedido_numero || '-'}</strong>
-                                        {item.pedido_numero && <small>Pedido {item.pedido_numero}</small>}
+                                        {item.pedido_numero && item.numero && item.pedido_numero !== item.numero && (
+                                            <small style={{ display: 'block', color: '#64748b' }}>Ped: {item.pedido_numero}</small>
+                                        )}
+                                    </td>
+                                    <td>
+                                        {item.es_paquete ? (
+                                            <span
+                                                className="badge-origen paquete"
+                                                title={`Paquete: ${item.paquete_nombre || item.paquete_numero || ''}`}
+                                            >
+                                                📦 {item.paquete_nombre ? truncateLabel(item.paquete_nombre, 16) : 'Paquete'}
+                                            </span>
+                                        ) : (
+                                            <span className="badge-origen individual">
+                                                📄 Individual
+                                            </span>
+                                        )}
                                     </td>
                                     <td>{item.obra || '-'}</td>
                                     <td>{item.cliente || '-'}</td>
@@ -673,11 +788,23 @@ function Reportes() {
                                     </td>
                                     <td>{formatNumberAR(item.saldo_m2 ?? item.cantidad_m2 ?? 0)}</td>
                                     <td>{formatNumberAR(item.saldo_ml ?? item.cantidad_ml ?? 0)}</td>
-                                    <td>{formatCurrencyAR(item.saldo_pesos ?? item.cantidad_pesos ?? 0)}</td>
+                                    <td style={{ fontWeight: 'bold' }}>
+                                        {formatCurrencyAR(item.saldo_pesos ?? item.cantidad_pesos ?? 0)}
+                                    </td>
                                     <td>
-                                        {formatDate(item.fecha_vencimiento || item.fecha || item.fecha_alta)}
+                                        {formatDate(item.fecha_vencimiento_precio || item.fecha_vencimiento || item.fecha || item.fecha_alta)}
                                         {item.dias_restantes !== undefined && item.dias_restantes !== null && (
-                                            <small>{item.dias_restantes} dias restantes</small>
+                                            <small
+                                                style={{
+                                                    display: 'block',
+                                                    color: item.dias_restantes <= 15 ? '#e74c3c' : '#f39c12',
+                                                    fontWeight: item.dias_restantes <= 15 ? 'bold' : 'normal',
+                                                }}
+                                            >
+                                                {item.dias_restantes < 0
+                                                    ? `Vencido hace ${Math.abs(item.dias_restantes)} días`
+                                                    : `Vence en ${item.dias_restantes} días`}
+                                            </small>
                                         )}
                                     </td>
                                 </tr>
@@ -685,8 +812,8 @@ function Reportes() {
 
                             {!loading && filteredData.length === 0 && (
                                 <tr>
-                                    <td colSpan={8}>
-                                        <div className="empty-state">Sin registros para los filtros actuales</div>
+                                    <td colSpan={9}>
+                                        <div className="empty-state">Sin registros para los filtros seleccionados</div>
                                     </td>
                                 </tr>
                             )}

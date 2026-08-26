@@ -288,14 +288,53 @@
 
 .lista-acopios .estado-badge {
     display: inline-block;
-    max-width: 100%;
     padding: 0.25rem 0.5rem;
     border-radius: 4px;
     font-size: 0.85rem;
     line-height: 1.2;
-    overflow-wrap: anywhere;
-    white-space: normal;
+    white-space: nowrap;
 }
+
+.badge-origen {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.badge-origen.paquete {
+    background-color: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.badge-origen.individual {
+    background-color: #f8fafc;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+}
+
+.filter-info-callout {
+    background-color: #f0f9ff;
+    border: 1px solid #bae6fd;
+    color: #0369a1;
+    padding: 0.75rem 1rem;
+    border-radius: 6px;
+    margin-bottom: 1.25rem;
+    font-size: 0.88rem;
+    line-height: 1.4;
+}
+
+.filter-info-callout.paquete-view {
+    background-color: #f0fdf4;
+    border-color: #bbf7d0;
+    color: #15803d;
+}
+
 
 .page-title-row,
 .section-title-row {
@@ -358,14 +397,13 @@
 
 .paquete-estado {
     display: inline-flex;
-    max-width: 100%;
     padding: 0.25rem 0.55rem;
     background: #e8f4fb;
     border-radius: 4px;
     color: #1f6f9f;
     font-size: 0.78rem;
     font-weight: 700;
-    overflow-wrap: anywhere;
+    white-space: nowrap;
 }
 
 .paquete-form-grid {

@@ -71,20 +71,34 @@ function ListaAcopios() {
                 </Link>
             </div>
 
-            <div className="form-section" style={{ marginBottom: '1.5rem' }}>
-                <label style={{ marginRight: '1rem' }}>Filtrar por estado:</label>
-                <select
-                    value={filtroEstado}
-                    onChange={(e) => setFiltroEstado(e.target.value)}
-                    style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ddd' }}
-                >
-                    <option value="">Todos</option>
-                    <option value="ACTIVO">Activo</option>
-                    <option value="PENDIENTE">Pendiente</option>
-                    <option value="PARCIALMENTE_CONSUMIDO">Parcialmente Consumido</option>
-                    <option value="CONSUMIDO">Consumido</option>
-                    <option value="CANCELADO">Cancelado</option>
-                </select>
+            <div className="form-section" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label style={{ marginRight: '0.5rem', fontWeight: 'bold' }}>Filtrar por estado:</label>
+                {[
+                    { value: '', label: 'Todos' },
+                    { value: 'ACTIVO', label: 'Activo' },
+                    { value: 'PENDIENTE', label: 'Pendiente' },
+                    { value: 'PARCIALMENTE_CONSUMIDO', label: 'Parcialmente Consumido' },
+                    { value: 'CONSUMIDO', label: 'Consumido' },
+                    { value: 'CANCELADO', label: 'Cancelado' }
+                ].map(opcion => (
+                    <button
+                        key={opcion.value}
+                        onClick={() => setFiltroEstado(opcion.value)}
+                        className="btn"
+                        style={{
+                            padding: '0.5rem 1rem',
+                            borderRadius: '4px',
+                            border: '1px solid #ddd',
+                            backgroundColor: filtroEstado === opcion.value ? '#34495e' : 'white',
+                            color: filtroEstado === opcion.value ? 'white' : '#333',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            fontWeight: filtroEstado === opcion.value ? 'bold' : 'normal'
+                        }}
+                    >
+                        {opcion.label}
+                    </button>
+                ))}
             </div>
 
             {acopios.length === 0 ? (
