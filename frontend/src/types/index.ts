@@ -228,6 +228,9 @@ export interface ResumenCompensacion {
         positivo: number;
         negativo: number;
         saldo: number;
+        saldo_monetario: number;
+        diferencia_valorizacion: number;
+        valorizacion_completa: boolean;
     };
     rows: ResumenCompensacionRow[];
     warnings: string[];

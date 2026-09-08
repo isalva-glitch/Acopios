@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import re
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, union_all, cast, String
@@ -12,8 +12,9 @@ from .models import (
 from services.proceso_inference import (
     PROCESS_FIELDS,
     PROCESS_UNITS,
+    infer_item_processes_from_texts,
 )
-from services.composicion_normalization import normalizar_composicion_con_reglas
+from services.composicion_normalization import normalizar_composicion, normalizar_composicion_con_reglas
 from services.process_learning_service import infer_item_processes_with_learning
 
 # Status mapping for SpfPedido.estado_id
@@ -38,6 +39,27 @@ def _to_decimal(value) -> Decimal:
 
 def _to_float(value) -> float:
     return float(_to_decimal(value))
+
+
+def _spf_item_importe_base(item: SpfItem) -> Decimal:
+    """Subtotal SPF antes del ajuste comercial del presupuesto de origen."""
+    medidas = sum((_to_decimal(m.total_item) for m in item.medidas), Decimal("0"))
+    adicionales = sum(
+        (_to_decimal(c.total_complemento) * _to_decimal(c.cantidad or 1)
+         for c in item.complementos),
+        Decimal("0"),
+    )
+    return medidas + adicionales
+
+
+def _aplicar_ajuste_presupuesto(importe: Decimal, porcentaje) -> Decimal:
+    """Porcentaje con signo: negativo descuenta y positivo incrementa.
+
+    Se aplica una vez por item, incluidos sus adicionales. El total del pedido
+    suma los importes finales redondeados para coincidir con lo persistido.
+    """
+    factor = Decimal("1") + _to_decimal(porcentaje) / Decimal("100")
+    return (importe * factor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _presupuesto_lookup_values(v_presupuesto_id: str):
@@ -128,7 +150,7 @@ def _get_complement_names(db: Session, items):
     return {comp.id: comp.nombre for comp in complements}
 
 
-def summarize_spf_items_processes(db: Session, items):
+def summarize_spf_items_processes(db: Session, items, learning_db: Session | None = None):
     """
     Summarize SPF items by reference-price process.
 
@@ -149,7 +171,11 @@ def summarize_spf_items_processes(db: Session, items):
                 for comp in item.complementos
             ),
         ]
-        inferred = infer_item_processes_with_learning(db, texts)
+        inferred = (
+            infer_item_processes_with_learning(learning_db, texts)
+            if learning_db is not None
+            else infer_item_processes_from_texts(texts)
+        )
 
         for field in PROCESS_FIELDS:
             if not inferred[field]:
@@ -167,7 +193,7 @@ def summarize_spf_items_processes(db: Session, items):
     ]
 
 
-def summarize_spf_item_processes(db: Session, item, complement_names=None):
+def summarize_spf_item_processes(db: Session, item, complement_names=None, learning_db: Session | None = None):
     """Summarize one SPF item by process and return its normalized composition."""
     complement_names = complement_names or _get_complement_names(db, [item])
     item_m2 = sum(_to_decimal(med.superficie) for med in item.medidas)
@@ -180,7 +206,11 @@ def summarize_spf_item_processes(db: Session, item, complement_names=None):
             for comp in item.complementos
         ),
     ]
-    composicion = normalizar_composicion_con_reglas(db, texts)
+    composicion = (
+        normalizar_composicion_con_reglas(learning_db, texts)
+        if learning_db is not None
+        else normalizar_composicion(texts)
+    )
     procesos = []
     for field in PROCESS_FIELDS:
         if not composicion.procesos[field]:
@@ -540,7 +570,7 @@ def get_avance_comercial_acopio(db: Session, v_presupuesto_id: str, nro_pedidos:
     }
 
 
-def get_pedido_for_imputation(db: Session, nro_pedido: str):
+def get_pedido_for_imputation(db: Session, nro_pedido: str, learning_db: Session | None = None):
     """
     Busca un pedido de producción específico en SPF para registrar una entrega/consumo.
     Un pedido representa una ejecución (parcial o total) del presupuesto de acopio.
@@ -595,28 +625,31 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
 
         item_m2 = Decimal("0")
         item_ml = Decimal("0")
-        item_pesos = Decimal("0")
+        item_base = _spf_item_importe_base(it)
+        item_pesos = _aplicar_ajuste_presupuesto(item_base, pedido.porcentaje_presupuesto)
         item_qty = 0
 
         for med in it.medidas:
             item_m2 += _to_decimal(med.superficie) # Already subtotal from requirement
             item_ml += _to_decimal(med.perimtero)
-            item_pesos += _to_decimal(med.total_item)
             item_qty += (med.cantidad or 0)
             
-        for comp in it.complementos:
-            qty = comp.cantidad or 1
-            unit_price = _to_decimal(comp.total_complemento)
-            item_pesos += unit_price * _to_decimal(qty)
-            # The units of adicionales should NOT count towards physical units consumed
+        # Los adicionales integran el importe final, no las unidades fisicas.
 
-        item_procesos, composicion = summarize_spf_item_processes(db, it, complement_names)
+        item_procesos, composicion = summarize_spf_item_processes(
+            db,
+            it,
+            complement_names,
+            learning_db=learning_db,
+        )
         items_out.append({
             "id": it.id,
             "v_item_id": it.v_item_id,
             "descripcion": it.descripcion or f"Item {it.id}",
             "total_m2": _to_float(item_m2),
             "total_ml": _to_float(item_ml),
+            "subtotal_pesos": _to_float(item_base),
+            "ajuste_pesos": _to_float(item_pesos - item_base),
             "total_pesos": _to_float(item_pesos),
             "total_unidades": item_qty,
             "procesos": item_procesos,
@@ -651,15 +684,26 @@ def get_pedido_for_imputation(db: Session, nro_pedido: str):
         "nro_pedido": pedido.nro_pedido or str(pedido.id),
         "nrooc": pedido.nrooc,
         "v_presupuesto_id": v_presupuesto_id,
+        "porcentaje_presupuesto": (
+            _to_float(pedido.porcentaje_presupuesto)
+            if pedido.porcentaje_presupuesto is not None else None
+        ),
+        "criterio_importe": "spf_con_ajuste_presupuesto",
         "estado_id": pedido.estado_id,
         "estado": ESTADOS_PEDIDO.get(pedido.estado_id, f"Estado {pedido.estado_id}"),
 
         "empresa": empresa,
-        "procesos": summarize_spf_items_processes(db, items),
+        "procesos": summarize_spf_items_processes(db, items, learning_db=learning_db),
         "items": items_out,
         "totals": {
             "m2": _to_float(total_m2),
             "ml": _to_float(total_ml),
+            "subtotal_pesos": _to_float(sum(
+                (_to_decimal(i["subtotal_pesos"]) for i in items_out), Decimal("0")
+            )),
+            "ajuste_pesos": _to_float(total_pesos - sum(
+                (_to_decimal(i["subtotal_pesos"]) for i in items_out), Decimal("0")
+            )),
             "pesos": _to_float(total_pesos),
             "unidades": total_qty
         }

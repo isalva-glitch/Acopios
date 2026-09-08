@@ -223,7 +223,11 @@ async def create_pedido_from_spf(
     Crea un pedido local y una imputación automática a partir de un pedido de SPF.
     """
     # 1. Fetch SPF order info
-    spf_pedido = spf_services.get_pedido_for_imputation(spf_db, payload.nro_pedido)
+    spf_pedido = spf_services.get_pedido_for_imputation(
+        spf_db,
+        payload.nro_pedido,
+        learning_db=db,
+    )
     if not spf_pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado en SPF")
     
@@ -291,6 +295,8 @@ async def create_pedido_from_spf(
                     "acopio_item_id": matched_item.id if matched_item else None,
                     "cantidad_m2": Decimal(str(pedido_item.get("total_m2") or 0)),
                     "cantidad_ml": Decimal(str(pedido_item.get("total_ml") or 0)),
+                    # El servicio SPF ya aplico el porcentaje con signo por item.
+                    # Persistir ese importe final sin repetir el ajuste.
                     "cantidad_pesos": Decimal(str(pedido_item.get("total_pesos") or 0)),
                     "cantidad_unidades": int(pedido_item.get("total_unidades") or 0),
                     "procesos": pedido_item.get("procesos", []),

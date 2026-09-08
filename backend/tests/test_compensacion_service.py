@@ -488,3 +488,80 @@ def test_resumen_compensacion_no_duplica_camara_estructural_en_offset(db_session
             "origen": "composicion_pedido",
         }
     ]
+
+import pytest
+
+from integrations.spf.database import get_spf_db
+from main import app
+from services.acopio_service import update_saldos
+
+
+@pytest.mark.parametrize(
+    "precio,consumo,saldo_monetario,saldo_composiciones",
+    [
+        (Decimal("10"), Decimal("301.25"), 698.75, 60),
+        (None, Decimal("301.25"), 698.75, 0),
+        (Decimal("0"), Decimal("301.25"), 698.75, 0),
+        (Decimal("10"), Decimal("1100.25"), -100.25, 60),
+    ],
+)
+def test_saldos_monetarios_coinciden_entre_endpoints(
+    db_session, client, precio, consumo, saldo_monetario, saldo_composiciones
+):
+    app.dependency_overrides[get_spf_db] = lambda: None
+    acopio = Acopio(
+        numero="SALDOS-1", fecha_alta=date.today(),
+        total_m2=Decimal("10"), total_ml=Decimal("0"),
+        total_pesos=Decimal("1000"), total_unidades=10,
+        saldo_m2=Decimal("10"), saldo_ml=Decimal("0"),
+        saldo_pesos=Decimal("1000"), saldo_unidades=10,
+    )
+    db_session.add(acopio)
+    db_session.flush()
+    item = AcopioItem(
+        acopio_id=acopio.id, descripcion="Vidrio", cantidad=10,
+        total_m2=Decimal("10"), total_ml=Decimal("0"), total_pesos=Decimal("1000"),
+        saldo_m2=Decimal("10"), saldo_ml=Decimal("0"), saldo_pesos=Decimal("1000"),
+        saldo_cantidad=10, proceso_vidrio_interior=True,
+    )
+    pedido = Pedido(numero="SALDOS-P1", fecha=date.today(), total_pesos=consumo)
+    db_session.add_all([item, pedido])
+    db_session.flush()
+    if precio is not None:
+        db_session.add(AcopioItemPrecioReferencia(
+            acopio_id=acopio.id, acopio_item_id=item.id,
+            concepto="vidrio_interior", unidad="m2",
+            precio_base=precio, precio_actual=precio, habilitado=True, origen="manual",
+        ))
+    imputacion = Imputacion(
+        pedido_id=pedido.id, acopio_id=acopio.id, acopio_item_id=item.id,
+        cantidad_m2=Decimal("4"), cantidad_ml=Decimal("0"),
+        cantidad_pesos=consumo, cantidad_unidades=4,
+    )
+    db_session.add(imputacion)
+    db_session.commit()
+    update_saldos(db_session, acopio.id)
+
+    detalle_response = client.get(f"/acopios/{acopio.id}")
+    resumen_response = client.get(f"/acopios/{acopio.id}/resumen-compensacion")
+    assert detalle_response.status_code == resumen_response.status_code == 200
+    detalle = detalle_response.json()
+    resumen = resumen_response.json()
+    totals = resumen["totals"]
+    assert detalle["saldos"]["pesos"] == totals["saldo_monetario"] == saldo_monetario
+    assert totals["saldo"] == saldo_composiciones
+    assert totals["diferencia_valorizacion"] == float(
+        Decimal(str(saldo_monetario)) - Decimal(str(saldo_composiciones))
+    )
+    assert totals["valorizacion_completa"] is (precio is not None)
+    assert sum(row["importe"] for row in resumen["rows"]) == saldo_composiciones
+
+    # Reference prices must not change the monetary balance or historical consumption.
+    db_session.refresh(imputacion)
+    assert imputacion.cantidad_pesos == consumo
+    db_session.delete(imputacion)
+    db_session.commit()
+    update_saldos(db_session, acopio.id)
+    detalle = client.get(f"/acopios/{acopio.id}").json()
+    resumen = client.get(f"/acopios/{acopio.id}/resumen-compensacion").json()
+    assert detalle["saldos"]["pesos"] == resumen["totals"]["saldo_monetario"] == 1000

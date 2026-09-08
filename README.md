@@ -243,6 +243,28 @@ npm run dev
 13. El paquete tiene estado propio y datos generales editables
 14. Los recibos de pago futuros deben imputarse contra acopios individuales para servir tanto a acopios tradicionales como a paquetes
 
+### Imputacion desde SPF: ajuste comercial por item
+
+Al imputar desde SPF, el porcentaje del presupuesto de origen se aplica con su
+signo: negativo es descuento y positivo es incremento. Un porcentaje nulo o cero
+no modifica el subtotal. Se utiliza el porcentaje del pedido de origen, aunque
+el acopio destino corresponda a otro presupuesto.
+
+- Subtotal del item = suma de `item_medidas.total_item` + adicionales
+  (`total_complemento × cantidad`).
+- Importe final del item = subtotal × (1 + `porcentaje_presupuesto` / 100).
+- Se redondea cada item a centavos (ROUND_HALF_UP); el total del pedido es la
+  suma de esos importes, los mismos que se guardan en `cantidad_pesos`.
+- El ajuste se aplica una sola vez en el servicio SPF compartido por la vista
+  previa y la confirmacion. Las cantidades fisicas y los procesos no cambian.
+- La vista previa muestra subtotal, porcentaje con signo, ajuste e importe final.
+  Los precios de referencia del acopio no reemplazan este calculo.
+- Las imputaciones historicas no se recalculan automaticamente.
+
+Caso de regresion: pedido 23790, origen 215040, destino 214948, porcentaje -17,36:
+cada item se multiplica por 0,8264. La compensacion por procesos conserva su
+regla independiente de valorizacion de cantidades con precios de referencia.
+
 ## Resumen de Compensacion
 
 El detalle del acopio incluye una tabla de compensacion por composicion. El calculo compara solo los pedidos efectivamente imputados al acopio contra las cantidades contratadas del acopio principal.

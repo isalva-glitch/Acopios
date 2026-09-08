@@ -74,7 +74,7 @@ async def get_pedido_imputation_preview(
     """
     Busca un pedido en SPF y previsualiza la imputación contra el acopio local correspondiente.
     """
-    spf_pedido = services.get_pedido_for_imputation(spf_db, nro_pedido)
+    spf_pedido = services.get_pedido_for_imputation(spf_db, nro_pedido, learning_db=db)
     if not spf_pedido:
         raise HTTPException(status_code=404, detail="Pedido no encontrado en SPF")
     

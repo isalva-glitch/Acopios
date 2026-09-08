@@ -485,6 +485,10 @@ def build_resumen_compensacion(
         })
 
     saldo = _round_money(total_positivo + total_negativo)
+    # The monetary balance is the same persisted balance exposed by acopio detail.
+    # Reference-price valuation is a separate measure, not a replacement for it.
+    saldo_monetario = _round_money(_to_decimal(acopio.saldo_pesos))
+    valorizacion_completa = not warnings
 
     return {
         "acopio_id": acopio.id,
@@ -494,6 +498,9 @@ def build_resumen_compensacion(
             "positivo": _as_float(_round_money(total_positivo)),
             "negativo": _as_float(_round_money(total_negativo)),
             "saldo": _as_float(saldo),
+            "saldo_monetario": _as_float(saldo_monetario),
+            "diferencia_valorizacion": _as_float(_round_money(saldo_monetario - saldo)),
+            "valorizacion_completa": valorizacion_completa,
         },
         "rows": rows,
         "warnings": warnings,

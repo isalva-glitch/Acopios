@@ -107,6 +107,14 @@ function DetalleAcopio() {
     const [loadingResumenCompensacion, setLoadingResumenCompensacion] = useState(false);
     const [resumenCompensacionError, setResumenCompensacionError] = useState<string | null>(null);
 
+    const [verTodoCompensacion, setVerTodoCompensacion] = useState(false);
+    const composicionesVisibles = (resumenCompensacion?.rows ?? []).filter(
+        (row) => verTodoCompensacion
+            || row.cantidad_acopio !== 0
+            || row.cantidad_pedidos !== 0
+            || row.importe !== 0
+    );
+
     // Imputation states
     const [showImputer, setShowImputer] = useState(false);
     const [nroPedidoBusqueda, setNroPedidoBusqueda] = useState('');
@@ -140,6 +148,7 @@ function DetalleAcopio() {
     }, [hasChanges]);
 
     useEffect(() => {
+        setVerTodoCompensacion(false);
         loadAcopio();
     }, [id]);
 
@@ -273,7 +282,8 @@ function DetalleAcopio() {
             setNroPedidoBusqueda('');
             setCrossBudgetWarning(null);
             setShowImputer(false);
-            loadAcopio();
+            setVerTodoCompensacion(false);
+        loadAcopio();
         } catch (err: any) {
             setImputationError(err.response?.data?.detail || 'Error al confirmar la imputación');
         } finally {
@@ -817,7 +827,8 @@ function DetalleAcopio() {
             if (originalAcopio) {
                 setAcopio(JSON.parse(JSON.stringify(originalAcopio)));
                 setHasChanges(false);
-                loadAcopio();
+                setVerTodoCompensacion(false);
+        loadAcopio();
             }
         }
     };
@@ -1279,7 +1290,20 @@ function DetalleAcopio() {
                                 <div>
                                     <p><strong>Cant. Paños:</strong> {imputationPreview.spf_pedido.totals.unidades}</p>
                                     <p><strong>Superficie:</strong> {imputationPreview.spf_pedido.totals.m2.toFixed(2)} m²</p>
-                                    <p><strong>Importe:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.pesos)}</p>
+                                    {imputationPreview.spf_pedido.totals.subtotal_pesos != null && (
+                                        <>
+                                            <p><strong>Subtotal SPF:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.subtotal_pesos)}</p>
+                                            <p><strong>Ajuste comercial:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.ajuste_pesos)}</p>
+                                        </>
+                                    )}
+                                    <p><strong>Importe final a imputar:</strong> {formatCurrencyAR(imputationPreview.spf_pedido.totals.pesos)}</p>
+                                    {imputationPreview.spf_pedido.porcentaje_presupuesto != null && (
+                                        <p>
+                                            <strong>Ajuste comercial informado por SPF:</strong>{' '}
+                                            {Number(imputationPreview.spf_pedido.porcentaje_presupuesto).toLocaleString('es-AR', { maximumFractionDigits: 2 })} %.
+                                            {' '}Aplicado proporcionalmente a cada ítem; un porcentaje negativo es un descuento.
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                             {imputationPreview.composicion_warnings?.length > 0 && (
@@ -1344,7 +1368,7 @@ function DetalleAcopio() {
                                         <td>{Number(acopio.saldos.ml).toFixed(2)}</td>
                                     </tr>
                                     <tr>
-                                        <td><strong>Pesos</strong></td>
+                                        <td><strong>Pesos (saldo monetario)</strong></td>
                                         <td>{formatCurrencyAR(acopio.totals.pesos)}</td>
                                         <td>{formatCurrencyAR(acopio.saldos.pesos)}</td>
                                     </tr>
@@ -1672,6 +1696,14 @@ function DetalleAcopio() {
                 <div className="resumen-compensacion-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         <h3 style={{ margin: 0 }}>Resumen de compensacion</h3>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
+                            <input
+                                type="checkbox"
+                                checked={verTodoCompensacion}
+                                onChange={(event) => setVerTodoCompensacion(event.target.checked)}
+                            />
+                            Ver todo
+                        </label>
                         <button 
                             className="btn btn-secondary" 
                             onClick={scrollToTotalItems}
@@ -1693,20 +1725,35 @@ function DetalleAcopio() {
                     <>
                         <div className="resumen-compensacion-totals">
                             <div>
-                                <span>Total positivo</span>
+                                <span>Saldo monetario</span>
+                                <strong className={resumenCompensacion.totals.saldo_monetario < 0 ? 'amount-negative' : 'amount-positive'}>
+                                    {formatSignedCurrency(resumenCompensacion.totals.saldo_monetario)}
+                                </strong>
+                            </div>
+                            <div>
+                                <span>Composiciones: total positivo</span>
                                 <strong className="amount-positive">{formatCurrencyAR(resumenCompensacion.totals.positivo)}</strong>
                             </div>
                             <div>
-                                <span>Total negativo</span>
+                                <span>Composiciones: total negativo</span>
                                 <strong className="amount-negative">{formatSignedCurrency(resumenCompensacion.totals.negativo)}</strong>
                             </div>
                             <div>
-                                <span>Saldo</span>
+                                <span>{resumenCompensacion.totals.valorizacion_completa ? 'Saldo de composiciones' : 'Saldo de composiciones (parcial)'}</span>
                                 <strong className={resumenCompensacion.totals.saldo < 0 ? 'amount-negative' : 'amount-positive'}>
                                     {formatSignedCurrency(resumenCompensacion.totals.saldo)}
                                 </strong>
                             </div>
                         </div>
+
+                        <p>
+                            El saldo monetario es el contratado menos los importes imputados y coincide con «Totales y Saldos».
+                            {' '}Las composiciones se valorizan con los precios de referencia actuales de cada ítem.
+                            {' '}Diferencia entre saldo monetario y composiciones: <strong>{formatSignedCurrency(resumenCompensacion.totals.diferencia_valorizacion)}</strong>.
+                            {!resumenCompensacion.totals.valorizacion_completa && (
+                                <> La valorización está incompleta: revise las advertencias y los precios por ítem. Un importe 0 no implica saldo monetario 0.</>
+                            )}
+                        </p>
 
                         {resumenCompensacion.warnings.length > 0 && (
                             <div className="warning-box resumen-compensacion-warnings">
@@ -1732,7 +1779,14 @@ function DetalleAcopio() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {resumenCompensacion.rows.map((row) => (
+                                    {composicionesVisibles.length === 0 && (
+                                        <tr>
+                                            <td colSpan={7}>
+                                                No hay composiciones con valores distintos de 0. Active «Ver todo» para mostrar todas las composiciones.
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {composicionesVisibles.map((row) => (
                                         <tr className={`compensacion-row ${row.estado}`} key={row.proceso}>
                                             <td>
                                                 <strong>{row.label}</strong>

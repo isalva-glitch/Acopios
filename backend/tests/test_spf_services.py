@@ -10,6 +10,7 @@ from integrations.spf.services import (
     search_presupuestos,
     get_presupuesto_details,
 )
+from models import ReglaProceso
 from integrations.spf.models import SpfPedido, SpfItem, SpfItemMedida, SpfItemComplemento
 
 
@@ -129,3 +130,103 @@ def test_get_pedido_for_imputation_uses_decimal_for_money_totals():
     assert Decimal(str(result["totals"]["pesos"])) == Decimal("1128417.90")
     assert str(result["items"][0]["total_pesos"]) != "1128417.9000000001"
 
+
+def test_get_pedido_for_imputation_does_not_query_local_rules_on_spf_db():
+    mock_db = MagicMock()
+
+    pedido = SpfPedido(id=23724, nro_pedido=23724, id_presupuesto=214692, estado_id=2)
+    item = SpfItem(
+        id=38385,
+        v_item_id=1,
+        v_presupuesto_id="214692",
+        descripcion="Float 6 mm Incoloro SM",
+    )
+    item.medidas = [
+        SpfItemMedida(
+            cantidad=1,
+            superficie=Decimal("1.20"),
+            perimtero=Decimal("4.40"),
+            total_item=Decimal("100.00"),
+        )
+    ]
+    item.complementos = []
+
+    def query_handler(model, *args):
+        if model is ReglaProceso:
+            raise AssertionError("reglas_proceso must not be queried on the SPF database")
+
+        m = MagicMock()
+        if model is SpfPedido:
+            m.filter.return_value.first.return_value = pedido
+        elif model is SpfItem:
+            m.filter.return_value.all.return_value = [item]
+        else:
+            m.filter.return_value.all.return_value = []
+            m.filter.return_value.first.return_value = None
+        return m
+
+    mock_db.query.side_effect = query_handler
+
+    result = get_pedido_for_imputation(mock_db, "23724")
+
+    assert result["id"] == 23724
+    assert result["v_presupuesto_id"] == "000214692"
+    assert result["items"][0]["total_m2"] == 1.2
+
+
+def test_get_pedido_for_imputation_applies_learning_rules_from_local_db():
+    spf_db = MagicMock()
+    learning_db = MagicMock()
+
+    pedido = SpfPedido(id=23724, nro_pedido=23724, id_presupuesto=214692, estado_id=2)
+    item = SpfItem(
+        id=38385,
+        v_item_id=1,
+        v_presupuesto_id="214692",
+        descripcion="Float 6 mm Incoloro SM",
+    )
+    item.medidas = [
+        SpfItemMedida(
+            cantidad=1,
+            superficie=Decimal("1.20"),
+            perimtero=Decimal("4.40"),
+            total_item=Decimal("100.00"),
+        )
+    ]
+    item.complementos = []
+
+    def spf_query_handler(model, *args):
+        if model is ReglaProceso:
+            raise AssertionError("reglas_proceso must not be queried on the SPF database")
+
+        m = MagicMock()
+        if model is SpfPedido:
+            m.filter.return_value.first.return_value = pedido
+        elif model is SpfItem:
+            m.filter.return_value.all.return_value = [item]
+        else:
+            m.filter.return_value.all.return_value = []
+            m.filter.return_value.first.return_value = None
+        return m
+
+    def learning_query_handler(model, *args):
+        assert model is ReglaProceso
+        q = MagicMock()
+        q.filter.return_value = q
+        q.order_by.return_value = q
+        q.all.return_value = [
+            SimpleNamespace(id=1, proceso="opacificado_total", accion="activar")
+        ]
+        return q
+
+    spf_db.query.side_effect = spf_query_handler
+    learning_db.query.side_effect = learning_query_handler
+
+    result = get_pedido_for_imputation(spf_db, "23724", learning_db=learning_db)
+
+    assert result["items"][0]["composicion"]["procesos"]["opacificado_total"] is True
+    assert {
+        "proceso": "opacificado_total",
+        "unidad": "m2",
+        "cantidad": 1.2,
+    } in result["items"][0]["procesos"]
