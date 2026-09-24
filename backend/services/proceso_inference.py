@@ -66,15 +66,6 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\bbp\b",
         r"\bbpsb\b",
     ),
-    "fason_templado_exterior": (
-        r"\bfason\s+templado\s+exterior\b",
-        r"\bfason\s+templado\b",
-        r"\bfason\s+temp\b",
-        r"\bfason\s+ext(?:erior)?\b",
-        r"\btemplad[oa]s?\b",
-        r"\btemp\b",
-        r"\btem\b",
-    ),
     "pegado_bastidor": (
         r"\bpegad[oa]\s+(?:a\s+)?bastidor\b",
         r"\bpegad[oa]\s+estructural\b",
@@ -102,6 +93,20 @@ _PROCESS_PATTERNS: Mapping[str, tuple[str, ...]] = {
         r"\boffset\b",
     ),
 }
+
+_FASON_EXPLICIT_PATTERNS = (
+    r"\bfason\s+templado\s+exterior\b",
+    r"\bfason\s+templado\b",
+    r"\bfason\s+temp\b",
+    r"\bfason\s+ext(?:erior)?\b",
+    r"\bfason\b",
+)
+
+_TEMPLADO_GENERIC_PATTERNS = (
+    r"\btemplad[oa]s?\b",
+    r"\btemp\b",
+    r"\btem\b",
+)
 
 _DVH_PATTERNS = (
     r"\bdvh\b",
@@ -188,6 +193,54 @@ def infer_item_processes_from_texts(texts: Iterable[object]) -> dict:
     )
     if has_generic_opacificado and not inferred["opacificado_perimetral"]:
         inferred["opacificado_total"] = True
+
+    # Fasón templado exterior:
+    # - Cuando en la descripción aparece primero la palabra "Templado" seguida del tipo de vidrio
+    #   (ej. "Templado Opacid 8mm", "Templado Float 6mm", "Templado 8mm"), el ítem ya tiene
+    #   incluido el proceso de templado en el precio -> fason_templado_exterior = False.
+    # - Cuando aparece Templado luego de '+' o posterior al tipo de vidrio
+    #   (ej. "Float 4mm + Templado + Pulido", "Float 4mm Templado", "Vidrio Exterior templado"),
+    #   va como un proceso separado en costo y precio -> fason_templado_exterior = True.
+    # - En DVH o cámaras, o ante mención explícita de "fasón", el templado es proceso separado.
+    has_any_templado = any(
+        re.search(pattern, normalized)
+        for pattern in (*_FASON_EXPLICIT_PATTERNS, *_TEMPLADO_GENERIC_PATTERNS)
+    )
+    if not has_any_templado:
+        inferred["fason_templado_exterior"] = False
+    elif any(re.search(pattern, normalized) for pattern in _FASON_EXPLICIT_PATTERNS):
+        inferred["fason_templado_exterior"] = True
+    elif (
+        has_dvh
+        or inferred["camara_normal"]
+        or inferred["camara_estructural"]
+        or inferred["camara_offset"]
+    ):
+        inferred["fason_templado_exterior"] = True
+    else:
+        raw_texts = [str(text).strip() for text in texts if text and str(text).strip()]
+        primary_text = raw_texts[0] if raw_texts else ""
+
+        chunks = [c.strip() for c in primary_text.split("+")]
+        has_templado_after_plus = (
+            len(chunks) > 1
+            and any(
+                any(re.search(p, normalize_process_text(c)) for p in _TEMPLADO_GENERIC_PATTERNS)
+                for c in chunks[1:]
+            )
+        )
+
+        if has_templado_after_plus:
+            inferred["fason_templado_exterior"] = True
+        else:
+            norm_chunk_0 = normalize_process_text(chunks[0])
+            clean_chunk_0 = re.sub(r"^(?:item\s*\d+[:\-.]?|\d+[\-.)]\s*)+", "", norm_chunk_0).strip()
+            starts_with_templado = bool(re.match(r"^(?:temp(?:lad[oa]s?)?|tem)\b", clean_chunk_0))
+
+            if starts_with_templado:
+                inferred["fason_templado_exterior"] = False
+            else:
+                inferred["fason_templado_exterior"] = True
 
     # Vidrio monolítico: sin vidrio interior/exterior explícito, sin DVH, sin cámara
     # y sin laminado → asignar vidrio_interior=True por defecto para contabilizar m².

@@ -360,8 +360,9 @@ Reglas interpretativas principales:
 - `Cámara` sin especificar Normal, Estructural u Offset se interpreta como Cámara Normal.
 - `Cámara Normal` explícita puede convivir con Cámara Estructural u Offset si también aparecen en el detalle.
 - `Cámara ... Estructural Offset` se interpreta como Cámara Offset. No se marca también como Cámara Estructural, porque es una variante Offset y no dos procesos de cámara acumulables.
-- Un vidrio simple sin DVH, sin camara, sin laminado y sin marca explicita de vidrio exterior se interpreta como Vidrio Interior para que sus m2 entren en el resumen de procesos.
-- `Templado`, `Templada`, `Templados`, `Templadas` o `Temp` marcan Fasón Templado Exterior.
+- Un vidrio simple sin DVH, sin cámara, sin laminado y sin marca explícita de vidrio exterior se interpreta como Vidrio Interior para que sus m² entren en el resumen de procesos.
+- Cuando en la descripción del ítem aparece primero la palabra `Templado` (o `Templada`, `Temp`) seguida del tipo de vidrio o espesor (ej. `Templado Opacid 8mm`, `Templado Float 6mm`, `Templado 8mm`), dicho ítem ya tiene incluido el proceso de templado en el precio de referencia/costo base; por lo tanto, no se computa como proceso separado de Fasón Templado Exterior (computa como vidrio monolítico asignando Vidrio Interior).
+- Cuando `Templado` aparece luego del signo `+` o posterior al tipo de vidrio (ej. `Float 4mm + Templado + Pulido`, `Float 4mm Templado`, `Vidrio Exterior templado`), se computa como un proceso separado en costo y precio, marcando Fasón Templado Exterior.
 - El signo `+` separa partes del detalle, pero no crea procesos por sí mismo: solo se marcan procesos con palabras clave conocidas.
 - Medidas o composiciones como `4+4` no marcan procesos si no incluyen una palabra clave de proceso.
 

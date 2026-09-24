@@ -154,6 +154,57 @@ def test_vidrio_exterior_explicito_no_activa_regla_monolitico():
     assert result["vidrio_interior"] is False
 
 
+def test_templado_al_inicio_incluido_en_precio_no_genera_fason():
+    """Cuando en la descripcion aparece primero 'Templado' seguida del tipo de vidrio,
+    el proceso de templado ya esta incluido en el precio y no va como fason separado."""
+    # Caso modelo usuario: Templado Opacid 8mm
+    result = infer_item_processes_from_texts([
+        "Templado Opacid 8mm"
+    ])
+    assert result["fason_templado_exterior"] is False
+    assert result["vidrio_interior"] is True
+
+    # Templado al inicio con proceso adicional luego de '+'
+    result_pulido = infer_item_processes_from_texts([
+        "Templado Opacid 8mm + Pulido"
+    ])
+    assert result_pulido["fason_templado_exterior"] is False
+    assert result_pulido["pulido"] is True
+    assert result_pulido["vidrio_interior"] is True
+
+    # Otros vidrios monolíticos con templado al inicio
+    for desc in ["Templado 8mm", "Templado Float 6mm", "Templado Incoloro 10mm", "Templado de 6 mm"]:
+        res = infer_item_processes_from_texts([desc])
+        assert res["fason_templado_exterior"] is False
+        assert res["vidrio_interior"] is True
+
+
+def test_templado_luego_de_mas_o_posterior_a_vidrio_es_proceso_separado():
+    """Cuando aparece Templado luego del + o posterior al tipo de vidrio,
+    va como un proceso separado en costo y precio (fason_templado_exterior=True)."""
+    # Caso modelo usuario: Float 4mm + Templado + Pulido
+    result_plus = infer_item_processes_from_texts([
+        "Float 4mm + Templado + Pulido"
+    ])
+    assert result_plus["fason_templado_exterior"] is True
+    assert result_plus["pulido"] is True
+    assert result_plus["vidrio_interior"] is True
+
+    # Posterior al tipo de vidrio sin '+'
+    result_post = infer_item_processes_from_texts([
+        "Float 4mm Templado"
+    ])
+    assert result_post["fason_templado_exterior"] is True
+    assert result_post["vidrio_interior"] is True
+
+    # Vidrio exterior templado
+    result_ext = infer_item_processes_from_texts([
+        "Vidrio Exterior templado"
+    ])
+    assert result_ext["fason_templado_exterior"] is True
+    assert result_ext["vidrio_exterior"] is True
+
+
 def test_acopio_creation_marks_detected_processes_and_keeps_manual_uncheck(
     client: TestClient,
 ):
