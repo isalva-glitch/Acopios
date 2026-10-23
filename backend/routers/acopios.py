@@ -409,6 +409,13 @@ async def get_acopio_detail(
                 db.rollback()
                 print(f"Warning: Failed to recalculate excedentes for acopio {acopio_id}: {rec_err}")
 
+        glassware_origen = None
+        if acopio.origen_datos == "glassware":
+            from models.glassware_import import GlasswareImport
+            imported = db.query(GlasswareImport).filter_by(acopio_id=acopio.id).first()
+            if imported:
+                glassware_origen = imported.datos.get("metadata")
+
         normalized_v_presupuesto_id = normalize_presupuesto_id(acopio.v_presupuesto_id)
         
         return {
@@ -424,6 +431,7 @@ async def get_acopio_detail(
             } if acopio.obra else None,
             "cliente_id": acopio.cliente_id,
             "origen_datos": acopio.origen_datos,
+            "glassware_origen": glassware_origen,
             "v_presupuesto_id": normalized_v_presupuesto_id,
             "paquete": {
                 "id": acopio.paquete.id,

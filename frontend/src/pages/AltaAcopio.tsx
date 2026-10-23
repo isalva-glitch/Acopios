@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import apiClient from '../api/client';
+import AltaDesdeGlassware from '../components/AltaDesdeGlassware';
 import { formatCurrencyAR } from '../utils/formatters';
 
 export interface SpfPresupuestoDetails {
@@ -77,7 +78,7 @@ export interface AcopioCreationResult {
 }
 
 function AltaAcopio() {
-    const [activeTab, setActiveTab] = useState<'spf' | 'pdf'>('spf');
+    const [activeTab, setActiveTab] = useState<'spf' | 'pdf' | 'glassware'>('glassware');
     const [searchQuery, setSearchQuery] = useState('');
     const [spfPreview, setSpfPreview] = useState<SpfPresupuestoDetails | null>(null);
     const [pdfPreview, setPdfPreview] = useState<PdfExtractionPackage | null>(null);
@@ -176,7 +177,7 @@ function AltaAcopio() {
         setSuccessData(null);
     };
 
-    const tabStyle = (tab: 'spf' | 'pdf') => ({
+    const tabStyle = (tab: 'spf' | 'pdf' | 'glassware') => ({
         padding: '10px 20px',
         cursor: 'pointer',
         borderBottom: activeTab === tab ? '3px solid #007bff' : 'none',
@@ -192,10 +193,13 @@ function AltaAcopio() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h2>Alta de Acopio</h2>
                 <div style={{ display: 'flex', gap: '10px' }}>
+                    <button style={tabStyle('glassware')} onClick={() => { setActiveTab('glassware'); handleReset(); }}>Origen Glassware</button>
                     <button style={tabStyle('spf')} onClick={() => { setActiveTab('spf'); handleReset(); }}>Origen SPF</button>
                     <button style={tabStyle('pdf')} onClick={() => { setActiveTab('pdf'); handleReset(); }}>Origen PDF</button>
                 </div>
             </div>
+
+            {activeTab === 'glassware' && <AltaDesdeGlassware />}
 
             {loading && (
                 <div className="spinner-overlay">

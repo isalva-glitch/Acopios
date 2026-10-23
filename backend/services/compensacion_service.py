@@ -420,6 +420,77 @@ def _build_item_valuation(
     return _round_money(importe_total), precio_faltante, detail
 
 
+def _build_control_desacopios(acopio: Acopio) -> dict:
+    """List physical and monetary consumption without consulting processes or prices."""
+    fields = ("m2", "ml", "pesos", "unidades")
+
+    def quantities(obj, prefix):
+        return {
+            field: _to_decimal(getattr(obj, prefix + field, 0))
+            for field in fields
+        }
+
+    def serialize(values):
+        return {
+            field: int(value) if field == "unidades" else _as_float(
+                _round_money(value) if field == "pesos" else _round_qty(value)
+            )
+            for field, value in values.items()
+        }
+
+    rows = {}
+    for item in acopio.items:
+        contratado = quantities(item, "total_")
+        contratado["unidades"] = _to_decimal(item.cantidad)
+        rows[item.id] = {
+            "item_id": item.id,
+            "numero_item": item.numero_item if item.numero_item is not None else item.id,
+            "descripcion": item.descripcion,
+            "contratado": contratado,
+            "imputado": dict.fromkeys(fields, Decimal("0")),
+            "pedidos": [],
+        }
+
+    sin_item = {"imputado": dict.fromkeys(fields, Decimal("0")), "pedidos": []}
+    imputado = dict.fromkeys(fields, Decimal("0"))
+    for imp in acopio.imputaciones:
+        values = quantities(imp, "cantidad_")
+        target = rows.get(imp.acopio_item_id, sin_item)
+        for field in fields:
+            target["imputado"][field] += values[field]
+            imputado[field] += values[field]
+        target["pedidos"].append({
+            "imputacion_id": imp.id,
+            "pedido_id": imp.pedido_id,
+            "pedido_numero": imp.pedido.numero if imp.pedido else str(imp.pedido_id),
+            "cantidades": serialize(values),
+        })
+
+    items = []
+    for row in rows.values():
+        row["disponible"] = serialize({
+            field: row["contratado"][field] - row["imputado"][field]
+            for field in fields
+        })
+        row["contratado"] = serialize(row["contratado"])
+        row["imputado"] = serialize(row["imputado"])
+        items.append(row)
+
+    contratado = quantities(acopio, "total_")
+    return {
+        "items": items,
+        # Global imputations already reduce the acopio balance. Do not invent
+        # an item allocation or subtract their quantities a second time.
+        "sin_item": {**sin_item, "imputado": serialize(sin_item["imputado"])},
+        "totales": {
+            "contratado": serialize(contratado),
+            "imputado": serialize(imputado),
+            "disponible": serialize({
+                field: contratado[field] - imputado[field] for field in fields
+            }),
+        },
+    }
+
 def build_resumen_compensacion(
     db: Session,
     acopio_id: int,
@@ -431,6 +502,22 @@ def build_resumen_compensacion(
         return None
 
     warnings: list[str] = []
+    items_sin_composicion = []
+    for item in acopio.items:
+        tiene_cantidad_fisica = _to_decimal(item.total_m2) != 0 or _to_decimal(item.total_ml) != 0
+        if tiene_cantidad_fisica and not any(
+            bool(getattr(item, f"proceso_{field}", False)) for field in PROCESS_FIELDS
+        ):
+            item_label = item.numero_item if item.numero_item is not None else item.id
+            items_sin_composicion.append({
+                "item_id": item.id, "numero_item": item_label, "descripcion": item.descripcion,
+                "cantidad_m2": _as_float(_to_decimal(item.total_m2)),
+                "cantidad_ml": _as_float(_to_decimal(item.total_ml)),
+            })
+            warnings.append(
+                f"Item {item_label} sin composicion asignada para valorizar. "
+                "Sus cantidades y desacopios se incluyen en el control por item. Revise sus procesos en Precios por item."
+            )
     acopio_totals, acopio_detail = _build_acopio_process_totals(acopio)
     pedido_totals, pedido_detail = _build_pedido_process_totals(acopio, warnings)
     acopio_item_totals = _build_acopio_item_process_totals(acopio)
@@ -479,6 +566,10 @@ def build_resumen_compensacion(
             "importe": _as_float(importe),
             "estado": estado,
             "precio_faltante": precio_faltante,
+            "tiene_valorizacion": any(
+                item["diferencia"] != 0 and not item["precio_faltante"]
+                for item in items_valorizacion
+            ),
             "items_acopio": acopio_detail[field],
             "pedidos": pedido_detail[field],
             "items_valorizacion": items_valorizacion,
@@ -501,7 +592,17 @@ def build_resumen_compensacion(
             "saldo_monetario": _as_float(saldo_monetario),
             "diferencia_valorizacion": _as_float(_round_money(saldo_monetario - saldo)),
             "valorizacion_completa": valorizacion_completa,
+            "tiene_valorizacion": valorizacion_completa or any(row["tiene_valorizacion"] for row in rows),
+            "saldo_valorizado": _as_float(saldo) if valorizacion_completa else None,
         },
+        "saldos_disponibles": {
+            "pesos": _as_float(saldo_monetario),
+            "m2": _as_float(_to_decimal(acopio.saldo_m2)),
+            "ml": _as_float(_to_decimal(acopio.saldo_ml)),
+            "unidades": acopio.saldo_unidades or 0,
+        },
+        "control_desacopios": _build_control_desacopios(acopio),
+        "items_sin_composicion": items_sin_composicion,
         "rows": rows,
         "warnings": warnings,
     }

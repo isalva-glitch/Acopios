@@ -4,8 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 # Import routers
+from routers import glassware
 from routers import (
     acopios,
+    documentacion,
+    tango_access,
     acopio_paquetes,
     aprendizaje_procesos,
     pedidos,
@@ -42,6 +45,9 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(glassware.router)
+app.include_router(documentacion.router, tags=["Documentacion"])
+app.include_router(tango_access.router)
 app.include_router(acopios.router, prefix="/acopios", tags=["Acopios"])
 app.include_router(acopio_paquetes.router, prefix="/acopio-paquetes", tags=["Acopio Paquetes"])
 app.include_router(aprendizaje_procesos.router, prefix="/aprendizaje-procesos", tags=["Aprendizaje Procesos"])

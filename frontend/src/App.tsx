@@ -97,7 +97,7 @@ function Home() {
             <div className="home-cards">
                  <Link to="/acopios/alta" className="card">
                     <h3>Nuevo Acopio</h3>
-                    <p>Desde presupuesto PDF / SPF</p>
+                    <p>Desde Glassware / PDF / SPF</p>
                 </Link>
                 <Link to="/acopios" className="card">
                     <h3>Ver Acopios</h3>

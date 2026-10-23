@@ -29,6 +29,9 @@ class Acopio(BaseModel):
     cliente_id = Column(Integer, nullable=True)
     origen_datos = Column(String(50), default='spf_production', nullable=False)
     
+    # Reparto documental neto. NULL conserva historicos sin clasificar.
+    porcentaje_facturado = Column(Numeric(5, 2), nullable=True)
+
     # Totales contratados
     total_m2 = Column(Numeric(12, 2), nullable=False, default=0)
     total_ml = Column(Numeric(12, 2), nullable=False, default=0)

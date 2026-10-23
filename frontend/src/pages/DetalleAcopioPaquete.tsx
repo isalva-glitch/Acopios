@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import apiClient from '../api/client';
+import { DocumentacionPaquete } from '../components/DocumentacionAcopio';
 import type { AcopioPaqueteDetalle } from '../types';
 import { formatCurrencyAR, formatNumberAR } from '../utils/formatters';
 
@@ -235,6 +236,8 @@ function DetalleAcopioPaquete() {
                     </div>
                 )}
             </section>
+
+            <DocumentacionPaquete paqueteId={paquete.id} revision={paquete.acopios.map(a => a.id).join(',')} />
 
             <section className="form-section">
                 <div className="section-title-row">

@@ -1,11 +1,12 @@
 import { Fragment, useState, useEffect } from 'react';
 import { Link, useParams, useBlocker } from 'react-router-dom';
 import apiClient from '../api/client';
+import DocumentacionAcopio from '../components/DocumentacionAcopio';
 import type {
     AcopioItemsPreciosReferencia,
     ConceptoPrecioReferencia,
     EstadoPreciosReferencia,
-    ResumenCompensacion
+    ResumenCompensacion, CantidadesCompensacion, DesacopioCompensacion
 } from '../types';
 import { formatCurrencyAR, formatDecimalInput, formatNumberAR, parseDecimalInput } from '../utils/formatters';
 import {
@@ -107,14 +108,6 @@ function DetalleAcopio() {
     const [loadingResumenCompensacion, setLoadingResumenCompensacion] = useState(false);
     const [resumenCompensacionError, setResumenCompensacionError] = useState<string | null>(null);
 
-    const [verTodoCompensacion, setVerTodoCompensacion] = useState(false);
-    const composicionesVisibles = (resumenCompensacion?.rows ?? []).filter(
-        (row) => verTodoCompensacion
-            || row.cantidad_acopio !== 0
-            || row.cantidad_pedidos !== 0
-            || row.importe !== 0
-    );
-
     // Imputation states
     const [showImputer, setShowImputer] = useState(false);
     const [nroPedidoBusqueda, setNroPedidoBusqueda] = useState('');
@@ -148,7 +141,6 @@ function DetalleAcopio() {
     }, [hasChanges]);
 
     useEffect(() => {
-        setVerTodoCompensacion(false);
         loadAcopio();
     }, [id]);
 
@@ -282,7 +274,6 @@ function DetalleAcopio() {
             setNroPedidoBusqueda('');
             setCrossBudgetWarning(null);
             setShowImputer(false);
-            setVerTodoCompensacion(false);
         loadAcopio();
         } catch (err: any) {
             setImputationError(err.response?.data?.detail || 'Error al confirmar la imputación');
@@ -827,7 +818,6 @@ function DetalleAcopio() {
             if (originalAcopio) {
                 setAcopio(JSON.parse(JSON.stringify(originalAcopio)));
                 setHasChanges(false);
-                setVerTodoCompensacion(false);
         loadAcopio();
             }
         }
@@ -1091,6 +1081,26 @@ function DetalleAcopio() {
         </div>
     );
 
+    const renderCantidadesCompensacion = (cantidad: CantidadesCompensacion) => (
+        <div className="compensacion-cantidades">
+            <span>{formatCantidad(cantidad.m2, 'm²')}</span>
+            <span>{formatCantidad(cantidad.ml, 'ml')}</span>
+            <span>{cantidad.unidades} unidades</span>
+            <span>{formatCurrencyAR(cantidad.pesos)}</span>
+        </div>
+    );
+
+    const renderPedidosCompensacion = (pedidos: DesacopioCompensacion[]) => pedidos.length ? (
+        <details>
+            <summary>{pedidos.length} {pedidos.length === 1 ? 'imputación' : 'imputaciones'}</summary>
+            {pedidos.map((pedido) => (
+                <div className="compensacion-pedido" key={pedido.imputacion_id}>
+                    <a href="#consumos-aplicados">Pedido {pedido.pedido_numero}</a>
+                    {renderCantidadesCompensacion(pedido.cantidades)}
+                </div>
+            ))}
+        </details>
+    ) : <span>Sin desacopios</span>;
     if (loading) {
         return <div className="loading">Cargando detalle...</div>;
     }
@@ -1104,9 +1114,15 @@ function DetalleAcopio() {
 
     return (
         <div className="detalle-acopio">
-            <h2>Acopio - Presupuesto SPF #{acopio.v_presupuesto_id || acopio.numero}</h2>
-
-            {hasChanges && (
+            <h2>Acopio - Presupuesto {acopio.origen_datos === 'glassware' ? 'Glassware' : acopio.origen_datos === 'spf_production' ? 'SPF' : ''} #{acopio.v_presupuesto_id || acopio.numero}</h2>
+            {acopio.glassware_origen && <details className="form-section" style={{marginBottom: '1rem'}}>
+                <summary>Origen Glassware y ajuste contratado</summary>
+                <p><a href={acopio.glassware_origen.url} target="_blank" rel="noreferrer">Abrir presupuesto original</a></p>
+                <p>Importe de los ítems antes del ajuste: {formatCurrencyAR(Number(acopio.glassware_origen.importe_sin_ajuste))}<br/>
+                    Ajuste general: {formatCurrencyAR(Number(acopio.glassware_origen.ajuste_importe))}</p>
+                {acopio.glassware_origen.observaciones && <p><strong>Observaciones originales:</strong> {acopio.glassware_origen.observaciones}</p>}
+                <p>El ajuste se distribuyó entre los ítems al importar. Las cantidades se conservaron y los precios fuente de componentes quedaron registrados.</p>
+            </details>}            {hasChanges && (
                 <div style={{
                     backgroundColor: '#fffbe6',
                     border: '1px solid #ffe58f',
@@ -1247,6 +1263,8 @@ function DetalleAcopio() {
                 </div>
             </div>
 
+            <DocumentacionAcopio key={'documentacion-' + acopio.id} acopioId={acopio.id} />
+
             {showImputer && acopio.estado !== 'CONSUMIDO' && (
                 <div className="form-section" style={{ border: '2px solid #3498db', backgroundColor: '#ebf5fb' }}>
                     <h3>Nueva Imputación (Descarga de Material)</h3>
@@ -1378,7 +1396,7 @@ function DetalleAcopio() {
                     </div>
 
                     {/* Panel derecho: Consumos Aplicados */}
-                    <div className="consumos-panel">
+                    <div className="consumos-panel" id="consumos-aplicados">
                         <div className="consumos-panel-title">
                             <span>Consumos Aplicados</span>
                             {loadingAvance && <span className="consumos-loading">Actualizando...</span>}
@@ -1427,7 +1445,7 @@ function DetalleAcopio() {
                                             : 'Remitos y facturas relacionados';
                                     })()}
                                 </summary>
-                                <div className="remitos-collapsible-body">
+                                <div className="remitos-collapsible-body"><p className="doc-note">Estos comprobantes respaldan los pedidos imputados. Sus importes ya están incluidos en el consumo y en el saldo operativo; una factura y un remito del mismo pedido no generan dos consumos.</p>
                                     {(() => {
                                         if (loadingAvance) {
                                             return <div className="remito-empty">Actualizando documentos...</div>;
@@ -1696,14 +1714,6 @@ function DetalleAcopio() {
                 <div className="resumen-compensacion-header">
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                         <h3 style={{ margin: 0 }}>Resumen de compensacion</h3>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', whiteSpace: 'nowrap' }}>
-                            <input
-                                type="checkbox"
-                                checked={verTodoCompensacion}
-                                onChange={(event) => setVerTodoCompensacion(event.target.checked)}
-                            />
-                            Ver todo
-                        </label>
                         <button 
                             className="btn btn-secondary" 
                             onClick={scrollToTotalItems}
@@ -1723,114 +1733,72 @@ function DetalleAcopio() {
 
                 {resumenCompensacion && (
                     <>
-                        <div className="resumen-compensacion-totals">
+                        <h4>Saldos disponibles del acopio</h4>
+                        <div className="resumen-compensacion-totals resumen-compensacion-stock">
                             <div>
-                                <span>Saldo monetario</span>
+                                <span>Saldo monetario disponible</span>
                                 <strong className={resumenCompensacion.totals.saldo_monetario < 0 ? 'amount-negative' : 'amount-positive'}>
                                     {formatSignedCurrency(resumenCompensacion.totals.saldo_monetario)}
                                 </strong>
                             </div>
                             <div>
-                                <span>Composiciones: total positivo</span>
-                                <strong className="amount-positive">{formatCurrencyAR(resumenCompensacion.totals.positivo)}</strong>
+                                <span>m² disponibles</span>
+                                <strong>{formatNumberAR(resumenCompensacion.saldos_disponibles?.m2 ?? acopio.saldos.m2)}</strong>
                             </div>
                             <div>
-                                <span>Composiciones: total negativo</span>
-                                <strong className="amount-negative">{formatSignedCurrency(resumenCompensacion.totals.negativo)}</strong>
+                                <span>ml disponibles</span>
+                                <strong>{formatNumberAR(resumenCompensacion.saldos_disponibles?.ml ?? acopio.saldos.ml)}</strong>
                             </div>
                             <div>
-                                <span>{resumenCompensacion.totals.valorizacion_completa ? 'Saldo de composiciones' : 'Saldo de composiciones (parcial)'}</span>
-                                <strong className={resumenCompensacion.totals.saldo < 0 ? 'amount-negative' : 'amount-positive'}>
-                                    {formatSignedCurrency(resumenCompensacion.totals.saldo)}
-                                </strong>
+                                <span>Unidades disponibles</span>
+                                <strong>{resumenCompensacion.saldos_disponibles?.unidades ?? acopio.saldos.unidades}</strong>
                             </div>
                         </div>
-
-                        <p>
-                            El saldo monetario es el contratado menos los importes imputados y coincide con «Totales y Saldos».
-                            {' '}Las composiciones se valorizan con los precios de referencia actuales de cada ítem.
-                            {' '}Diferencia entre saldo monetario y composiciones: <strong>{formatSignedCurrency(resumenCompensacion.totals.diferencia_valorizacion)}</strong>.
-                            {!resumenCompensacion.totals.valorizacion_completa && (
-                                <> La valorización está incompleta: revise las advertencias y los precios por ítem. Un importe 0 no implica saldo monetario 0.</>
-                            )}
-                        </p>
-
-                        {resumenCompensacion.warnings.length > 0 && (
-                            <div className="warning-box resumen-compensacion-warnings">
-                                {resumenCompensacion.warnings.map((warning, index) => (
-                                    <div className="warning-item warning" key={`${warning}-${index}`}>
-                                        {warning}
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-
-                        <div className="table resumen-compensacion-table">
+                        <h4>Control de cantidades y desacopios</h4>
+                        <p>Todos los ítems y sus imputaciones se muestran aunque estén pendientes de valorizar. Los importes corresponden al acopio y a los desacopios registrados, sin IVA.</p>
+                        <div className="table control-desacopios-table">
                             <table>
                                 <thead>
                                     <tr>
-                                        <th>Composicion</th>
-                                        <th>Acopio</th>
+                                        <th>Ítem</th>
+                                        <th>Acopiado</th>
+                                        <th>Desacopiado</th>
+                                        <th>Disponible</th>
                                         <th>Pedidos imputados</th>
-                                        <th>Diferencia</th>
-                                        <th>Precio ref.</th>
-                                        <th>Importe</th>
-                                        <th>Detalle</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {composicionesVisibles.length === 0 && (
-                                        <tr>
-                                            <td colSpan={7}>
-                                                No hay composiciones con valores distintos de 0. Active «Ver todo» para mostrar todas las composiciones.
-                                            </td>
-                                        </tr>
-                                    )}
-                                    {composicionesVisibles.map((row) => (
-                                        <tr className={`compensacion-row ${row.estado}`} key={row.proceso}>
-                                            <td>
-                                                <strong>{row.label}</strong>
-                                                {row.precio_faltante && <span className="missing-price">Sin precio</span>}
-                                            </td>
-                                            <td>{formatCantidad(row.cantidad_acopio, row.unidad)}</td>
-                                            <td>{formatCantidad(row.cantidad_pedidos, row.unidad)}</td>
-                                            <td className={row.diferencia < 0 ? 'amount-negative' : row.diferencia > 0 ? 'amount-positive' : ''}>
-                                                {formatCantidad(row.diferencia, row.unidad)}
-                                            </td>
-                                            <td>{formatCurrencyAR(row.precio_referencia)}</td>
-                                            <td className={row.importe < 0 ? 'amount-negative' : row.importe > 0 ? 'amount-positive' : ''}>
-                                                {formatSignedCurrency(row.importe)}
-                                            </td>
-                                            <td>
-                                                <details>
-                                                    <summary>Ver</summary>
-                                                    <div className="compensacion-detail">
-                                                        <strong>Acopio</strong>
-                                                        {row.items_acopio.length > 0 ? (
-                                                            row.items_acopio.map((item) => (
-                                                                <div key={item.item_id}>
-                                                                    Item {item.item_id}: {formatCantidad(item.cantidad, row.unidad)}
-                                                                </div>
-                                                            ))
-                                                        ) : (
-                                                            <div>Sin cantidad asignada</div>
-                                                        )}
-                                                        <strong>Pedidos</strong>
-                                                        {row.pedidos.length > 0 ? (
-                                                            row.pedidos.map((pedido) => (
-                                                                <div key={`${pedido.imputacion_id}-${pedido.pedido_numero || 'pedido'}`}>
-                                                                    Pedido {pedido.pedido_numero || pedido.pedido_id}: {formatCantidad(pedido.cantidad, row.unidad)}
-                                                                </div>
-                                                            ))
-                                                        ) : (
-                                                            <div>Sin cantidad imputada</div>
-                                                        )}
-                                                    </div>
-                                                </details>
-                                            </td>
+                                    {resumenCompensacion.control_desacopios.items.map((item) => (
+                                        <tr key={item.item_id}>
+                                            <td><strong>Ítem {item.numero_item}</strong><div>{item.descripcion}</div></td>
+                                            <td>{renderCantidadesCompensacion(item.contratado)}</td>
+                                            <td>{renderCantidadesCompensacion(item.imputado)}</td>
+                                            <td>{renderCantidadesCompensacion(item.disponible)}</td>
+                                            <td>{renderPedidosCompensacion(item.pedidos)}</td>
                                         </tr>
                                     ))}
+                                    {resumenCompensacion.control_desacopios.sin_item.pedidos.length > 0 && (
+                                        <tr>
+                                            <td>
+                                                <strong>Desacopios sin ítem asignado</strong>
+                                                <div>Ya descontados del disponible total. Sin distribución entre ítems.</div>
+                                            </td>
+                                            <td>—</td>
+                                            <td>{renderCantidadesCompensacion(resumenCompensacion.control_desacopios.sin_item.imputado)}</td>
+                                            <td>—</td>
+                                            <td>{renderPedidosCompensacion(resumenCompensacion.control_desacopios.sin_item.pedidos)}</td>
+                                        </tr>
+                                    )}
                                 </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <th>Total del acopio</th>
+                                        <td>{renderCantidadesCompensacion(resumenCompensacion.control_desacopios.totales.contratado)}</td>
+                                        <td>{renderCantidadesCompensacion(resumenCompensacion.control_desacopios.totales.imputado)}</td>
+                                        <td>{renderCantidadesCompensacion(resumenCompensacion.control_desacopios.totales.disponible)}</td>
+                                        <td><a href="#consumos-aplicados">Ver consumos aplicados</a></td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     </>

@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Acopios — Conector Glassware",
+  "version": "1.0.0",
+  "description": "Consulta presupuestos de Glassware con la sesión abierta y los envía a la vista previa de Acopios.",
+  "permissions": [
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://glassware.fontela.com.ar/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}

@@ -218,8 +218,40 @@ export interface ResumenCompensacionRow {
     items_acopio: ResumenCompensacionItemDetalle[];
     pedidos: ResumenCompensacionPedidoDetalle[];
     items_valorizacion?: ResumenCompensacionItemValorizacion[];
+    tiene_valorizacion: boolean;
 }
 
+export interface CantidadesCompensacion {
+    pesos: number;
+    m2: number;
+    ml: number;
+    unidades: number;
+}
+
+export interface DesacopioCompensacion {
+    imputacion_id: number;
+    pedido_id: number;
+    pedido_numero: string;
+    cantidades: CantidadesCompensacion;
+}
+
+export interface ControlDesacopios {
+    items: {
+        item_id: number;
+        numero_item: number;
+        descripcion: string;
+        contratado: CantidadesCompensacion;
+        imputado: CantidadesCompensacion;
+        disponible: CantidadesCompensacion;
+        pedidos: DesacopioCompensacion[];
+    }[];
+    sin_item: { imputado: CantidadesCompensacion; pedidos: DesacopioCompensacion[] };
+    totales: {
+        contratado: CantidadesCompensacion;
+        imputado: CantidadesCompensacion;
+        disponible: CantidadesCompensacion;
+    };
+}
 export interface ResumenCompensacion {
     acopio_id: number;
     numero?: string | null;
@@ -231,7 +263,12 @@ export interface ResumenCompensacion {
         saldo_monetario: number;
         diferencia_valorizacion: number;
         valorizacion_completa: boolean;
+        tiene_valorizacion: boolean;
+        saldo_valorizado: number | null;
     };
+    saldos_disponibles: { pesos: number; m2: number; ml: number; unidades: number };
+    control_desacopios: ControlDesacopios;
+    items_sin_composicion: { item_id: number; numero_item: number; descripcion: string; cantidad_m2: number; cantidad_ml: number }[];
     rows: ResumenCompensacionRow[];
     warnings: string[];
 }

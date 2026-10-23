@@ -1943,3 +1943,30 @@
         padding: 1.5rem 0 0 0;
     }
 }
+
+.resumen-compensacion-stock {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.amount-pending {
+    color: #806014;
+    font-weight: 600;
+}
+
+.control-desacopios-table table {
+    min-width: 850px;
+}
+.control-desacopios-table td:first-child {
+    max-width: 360px;
+}
+.compensacion-cantidades {
+    display: grid;
+    gap: 0.25rem;
+    white-space: nowrap;
+}
+.compensacion-pedido {
+    margin-top: 0.75rem;
+}
+.control-desacopios-table tfoot {
+    background: #f7f9fa;
+    font-weight: 600;
+}

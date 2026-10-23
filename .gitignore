@@ -50,3 +50,6 @@ storage/
 # Logs
 *.log
 logs/
+
+# Local Access connector requests, replies and logs (never credentials)
+backend/.tango_access_bridge/

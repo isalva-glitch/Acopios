@@ -155,8 +155,8 @@ La ruta `/paquetes` lista paquetes de obras y consolida los totales de sus acopi
 - Los totales del paquete se calculan a partir de los acopios hijos.
 - El preview valida presupuestos repetidos, inexistentes, duplicados entre SPF/PDF o ya cargados como acopio.
 - Si el presupuesto madre no existe en SPF, el paquete puede crearse inicialmente solo desde el PDF.
-- En esta etapa no se implementan recibos ni imputaciones financieras.
-- Nota tecnica: el futuro modulo de recibos debe imputar contra `acopio_id`, no contra `paquete_id`; el paquete solo debe mostrar la consolidacion de recibos imputados a sus acopios hijos.
+- Los comprobantes y recibos se gestionan en Documentación del acopio; el paquete muestra su consolidado.
+- Los comprobantes se aplican contra `acopio_id`, no contra `paquete_id`; el paquete consolida las aplicaciones de sus acopios hijos.
 
 ## UX: Fecha de Vencimiento del Acopio
 
@@ -241,7 +241,7 @@ npm run dev
 11. Un acopio puede pertenecer a cero o un paquete
 12. Los acopios hijos conservan estado operativo propio y se gestionan desde el detalle normal de acopio
 13. El paquete tiene estado propio y datos generales editables
-14. Los recibos de pago futuros deben imputarse contra acopios individuales para servir tanto a acopios tradicionales como a paquetes
+14. Los recibos de pago se aplican a acopios individuales para servir tanto a acopios tradicionales como a paquetes
 
 ### Imputacion desde SPF: ajuste comercial por item
 
@@ -406,3 +406,207 @@ La cabecera del PDF se recupera desde tabla o desde texto compacto. Cuando la ta
 ## Licencia
 
 Propiedad de Ivan Salva
+
+## Documentación del acopio
+
+El detalle de cada acopio incluye una sección independiente de los Informes Ejecutivos para registrar órdenes de compra, facturas de anticipo y recibos. No extrae información del PDF: número, emisor, fecha e importes se completan manualmente; el número abre el archivo adjunto. Se admiten PDF de hasta 20 MB y se puede guardar primero el comprobante para adjuntar su archivo después.
+
+- El reparto Facturado / Viviana se guarda por acopio y admite porcentajes de 0 a 100 con dos decimales, incluidos 50/50. Los históricos quedan por definir. El importe de Viviana se obtiene como diferencia respecto del neto total para conservar los centavos.
+- «Agregar comprobante» y «Asociar existente» abren sus formularios aunque el reparto esté por definir. Antes de confirmar se indica cómo definir y guardar el reparto; puede completarse con el formulario abierto sin perder datos. Un reparto modificado debe guardarse antes de confirmar el comprobante.
+- Todos los importes aplicados y conciliados son netos en pesos, sin IVA. El IVA del comprobante es un dato informativo opcional.
+- La OC puede cubrir solo Facturado, solo Viviana o ambas partes. En una OC total se conserva el original y se distribuye el importe aplicado; la factura se compara contra la parte Facturado de la OC vinculada. Se admiten varias facturas contra una misma OC.
+- El control muestra pendiente de OC/factura, coincidencia o diferencia. La falta del PDF se informa por separado. La suma de las OC no incrementa lo facturado ni lo cobrado; las facturas tampoco se consideran cobros.
+- “Asociar existente” permite distribuir un comprobante entre varios acopios. La suma de sus aplicaciones activas no puede superar su neto original. Los datos originales de un comprobante compartido se conservan al editar cada aplicación.
+- Los recibos se aplican a Facturado o Viviana; los de Facturado pueden vincularse a una factura. Los cobros que superan esa factura o la parte acordada se señalan para revisión.
+- “Anular vínculo” excluye una aplicación de los totales y permite restaurarla desde el historial. Primero deben desvincularse o anularse sus documentos dependientes.
+- Los paquetes muestran únicamente el consolidado de las aplicaciones a sus acopios hijos. No tienen aplicaciones financieras propias y no repiten el importe original de los comprobantes compartidos.
+- Las facturas y remitos de pedidos existentes en Consumos aplicados siguen consultándose desde SPF; no se importan como anticipos ni cobros. El saldo operativo se calcula una sola vez a partir de las imputaciones. La documentación inicial, su PDF y sus recibos no modifican saldos, imputaciones de pedidos ni compensaciones operativas.
+
+La migración `d7e8f9a0b123` amplía las tablas existentes sin asignar reparto a registros históricos. Las pruebas de negocio están en `backend/tests/test_documentacion.py`.
+
+### Saldos disponibles y control de desacopios
+
+El resumen muestra pesos, m², ml y unidades disponibles desde los mismos saldos operativos del detalle, incluyendo todos los ítems. Las cantidades de procesos pueden superponerse (por ejemplo, vidrio y pulido), por lo que no se suman para reconstruir el stock físico.
+
+El resumen termina con el control de cantidades y desacopios; se retiró el bloque final redundante de valorización por composiciones, sus advertencias y el filtro «Ver todo». La edición de precios por ítem continúa disponible como herramienta de control. El control de cantidades y desacopios lista todos los ítems, incluso sin conceptos ni precios, con cantidades y pesos contratados, imputados y disponibles, y el detalle de pedidos. Se calcula directamente desde las imputaciones, sin inferir ni cambiar procesos. Los desacopios sin ítem asignado tienen su propia fila: reducen el disponible total una sola vez, sin inventar una distribución entre ítems.
+
+En la API, `saldos_disponibles` conserva las cuatro magnitudes operativas; `totals.saldo_valorizado` es `null` mientras la valorización sea incompleta. Los agregados numéricos anteriores se conservan como subtotales por compatibilidad y deben interpretarse junto con `valorizacion_completa` y `tiene_valorizacion`. Un precio cero ingresado manualmente sigue siendo un precio válido.
+
+## Datos de Tango mediante Access
+
+El detalle del acopio incluye el botón **Consultar Tango** en la sección Documentación del acopio, con una sola lista y sin modificar Consumos aplicados. Consulta las empresas Fontela y Viviana a través de la interfaz Access ya conectada a SQL Server. Carga facturas candidatas, sus recibos, notas de crédito y referencias a pedidos u órdenes de compra informadas en Tango. La coincidencia de cliente e importe propone una relación: no confirma por sí sola que el documento pertenezca a esa obra.
+
+Los resultados quedan **Por revisar**. Cada registro permite **Conservar para control** o **Descartar coincidencia**, y los descartados pueden recuperarse desde el historial. Consultar otra vez no duplica resultados idénticos ni restaura descartados. Si el origen cambia, se presenta una nueva versión para revisar y se mantiene la versión conservada anterior hasta aceptar el cambio. También se detectan cambios de anulación; el estado CAN de Tango significa deuda cancelada, no comprobante anulado.
+
+La consulta respeta el reparto Facturado/Viviana si está definido y funciona también en históricos sin reparto. **Ampliar búsqueda por cliente** incluye otras facturas del mismo cliente y requiere revisar especialmente la obra. La búsqueda inicial está limitada a dos años antes del alta del acopio y hasta seis facturas candidatas por empresa; se muestran advertencias de límites y de coincidencias ambiguas.
+
+Los importes de Fontela se controlan sin IVA. El recibo conserva su total bruto original, pero muestra por separado las aplicaciones a los anticipos encontrados y su neto equivalente. Las notas de crédito son ajustes, no cobros; para una factura completamente cancelada, los recibos distribuyen el neto restante después de esos ajustes, conservando los centavos. Los cobros parciales indican que el neto es proporcional. Viviana utiliza el importe interno aplicado. Los documentos en moneda extranjera o con aplicaciones anuladas requieren revisar su conversión o aplicación antes de usar un neto equivalente.
+
+**Conservar para control no crea ni modifica comprobantes manuales, saldos o imputaciones de desacopio.** Los resultados persisten en la tabla independiente tango_registros. Se conserva la información original consultada; la migración e8f901a2b345 crea esa tabla sin transformar los documentos existentes.
+
+### Iniciar el conector en el equipo de Access
+
+1. Abrir la interfaz Access que ya tiene acceso a Tango: C:\Users\windows\Desktop\Interfaz TANGO FONTELA Version2 SEPARACION FAC REM.mdb.
+2. Desde Windows PowerShell o PowerShell 7, en la carpeta del repositorio, ejecutar:
+   ~~~powershell
+   .\scripts\Start-TangoAccessBridge.ps1
+   ~~~
+3. Mantener abierta esa sesión de Access mientras se realizan consultas. Los archivos iniciar_sistema.bat y reiniciar_sistema.bat también inician el conector, sin duplicarlo si ya está activo. Abrir Access por sí solo no inicia este proceso. El panel indica si falta Access o el conector. El proceso queda oculto; el inicio con Windows es opcional y se configura mediante el instalador documentado más abajo.
+
+El iniciador utiliza PowerShell 7 si está disponible y Windows PowerShell en caso contrario, sin cambiar políticas permanentes. Para usar otra copia de la misma interfaz puede indicarse el parámetro -AccessFile con su ruta, siempre que contenga los vínculos esperados GVA14 y B_GVA14 a las bases configuradas.
+
+El conector expone únicamente consultas SELECT fijas y de solo lectura, reutiliza la conexión autenticada de Access y no guarda contraseñas ni abre puertos. Verifica la empresa de cada vínculo y consulta las tablas reales de Tango, evitando las copias temporales de Access. No ejecuta SQL enviado desde la pantalla. La comunicación local usa backend/.tango_access_bridge/, excluida de Git; para detener el proceso, crear allí un archivo llamado stop. El próximo inicio lo elimina.
+
+**Abrir PDF de Tango** está disponible cuando existe un archivo accesible en la carpeta de recibos autorizada \\srvfontela\SYSGESTION\RECIBOS. Se recupera el PDF por la identidad del comprobante, sin leerlo para extraer datos. Si Tango no tiene una copia accesible, se informa y continúa disponible la carga manual de PDF.
+
+Las regresiones de consulta, revisión, versiones, distribución y aislamiento están en backend/tests/test_tango_access.py.
+
+### Asociar existente desde Tango
+
+Al abrir **Asociar existente**, el formulario consulta Tango automáticamente y muestra las coincidencias de Fontela y Viviana, junto con la búsqueda de comprobantes ya guardados en Acopios. **Usar estos datos** completa el formulario; recién **Guardar comprobante** crea la asociación comercial. Se puede descartar una coincidencia y recuperarla desde el historial de Documentación del acopio. Con Access desconectado se conservan los resultados anteriores y continúa disponible la búsqueda local.
+
+Las facturas de anticipo y de mercadería de Fontela y los recibos de ambas empresas pueden incorporarse directamente. Los recibos de Viviana a cuenta no necesitan una factura. Las notas de crédito y los anticipos internos de Viviana permanecen como información de control, sin convertirlos en facturas fiscales o cobros. La búsqueda conserva los límites y criterios de coincidencia explicados arriba.
+
+Para los recibos de Fontela se consulta también su distribución completa, incluidas otras facturas, para conservar el bruto original y calcular el neto de control completo. La aplicación sugerida al acopio incluye solo los anticipos candidatos relacionados. Si no se puede determinar el neto completo, hay moneda extranjera o aplicaciones anuladas, se explica por qué no se habilita la incorporación automática. El usuario puede revisar y reducir el importe sugerido.
+
+Una identidad única por empresa, tipo e identificador de Tango evita duplicar el original al utilizarlo en varios acopios. Se controla el disponible global sin IVA, la parte Fontela/Viviana y la referencia a la factura; los datos originales importados se conservan. Si ya hay un documento manual con la misma identidad comercial, se pide seleccionarlo entre los guardados en Acopios. El PDF se copia al almacenamiento de Acopios si está disponible; una falla de copia se informa y permite adjuntarlo después.
+
+La asociación guarda el resultado en Documentación del acopio y marca la coincidencia de Tango como conservada. Los saldos operativos y los consumos no cambian. La migración f901a2b3c456 agrega únicamente la tabla de identidades tango_comprobantes.
+
+### Coincidencias en el campo Número de Agregar comprobante
+
+El mismo campo Número del formulario existente consulta automáticamente, tras una breve pausa al escribir, facturas y recibos de Acopios y de las dos empresas de Tango. No agrega otro campo. Acepta números cortos como 11794 y formatos completos como A0007-00011794, con letra y punto de venta para resolver ambigüedades. La búsqueda por número en Tango no depende del importe, reparto, nombre del cliente ni de la ventana de fechas de la búsqueda general.
+
+Las coincidencias se presentan sin completar ni sobrescribir los datos automáticamente. **Usar existente** reutiliza un comprobante local; **Usar datos de Tango** completa el mismo formulario y utiliza la asociación de origen al confirmar, evitando crear otra copia manual. Se mantienen el control de disponibles, la copia del PDF y los datos originales. **Ingresar otro número** permite volver a la carga manual. Las facturas de mercadería se identifican y no se proponen como anticipos.
+
+Cada resultado de Tango muestra la razón social y advierte si el nombre difiere del cliente del acopio, porque los nombres locales pueden ser abreviaturas o nombres comerciales. El usuario revisa la coincidencia antes de usarla. Las consultas son limitadas y los resultados no se asocian hasta guardar. Si Access no responde, la búsqueda local sigue disponible y la pantalla informa qué fuente no pudo comprobarse.
+
+La normalización y las consultas de ambos orígenes tienen regresiones en backend/tests/test_comprobante_numero.py.
+
+
+### Facturas de mercadería en Documentación del acopio
+
+El selector Tipo admite Factura de mercadería, además de Orden de compra, Factura de anticipo y Recibo. Se puede cargar manualmente con PDF, buscar por número en Acopios y Tango o usar Asociar existente. Se clasifica en la parte Facturado, puede vincularse a una OC y admite recibos vinculados. Los importes y disponibles se controlan sin IVA.
+
+Tango propone anticipo o mercadería según los artículos del comprobante. Antes de incorporar por primera vez una factura de Fontela puede elegirse la clasificación; al utilizar los datos desde el campo Número se conserva el tipo de factura elegido en el formulario. Una vez incorporado un original compartido, su clasificación se conserva para todas las asociaciones, evitando crear otra copia del mismo comprobante.
+
+El importe aplicado aparece separado en Mercadería documentada, tanto en el acopio como en el consolidado de paquetes. No se suma a Anticipos facturados ni se considera un cobro. Si la misma OC tiene anticipos y mercadería, el control pide revisar la aplicación de anticipos antes de consolidar esos documentos. La falta del PDF se informa por separado.
+
+La asociación es documental: no crea imputaciones, no vuelve a descontar las facturas o remitos ya presentes en Consumos aplicados y no modifica saldos físicos ni monetarios del acopio. No necesita migración: FAC_MERCADERIA ya formaba parte del modelo de comprobantes.
+
+
+### Lista unificada de Documentación del acopio
+
+La pantalla presenta una sola sección Documentación del acopio para órdenes de compra, facturas, recibos y datos consultados en Tango. Agregar comprobante, Asociar existente y Consultar Tango comparten la misma lista. Cada fila indica el origen, el estado y el importe aplicado. No se mantiene un segundo panel Datos de Tango.
+
+Un comprobante incorporado desde Tango aparece una sola vez: sus observaciones e historial se integran a la fila de su asociación. Para cargas manuales se reúnen también las coincidencias exactas del número fiscal completo y un emisor conocido, sin fusionar datos ni crear vínculos. Un número corto o una coincidencia de otro emisor no se utiliza como identidad para ocultar filas.
+
+Las coincidencias sin asociación se muestran como Por revisar o Conservado sin asociar. Revisar y asociar abre el formulario de confirmación; Conservar para control no modifica los totales económicos. Las notas de crédito y los registros internos pueden conservarse como información de control. Los importes asociados mantienen sus reglas de conciliación y no se descuentan otra vez de los saldos operativos.
+
+Una actualización de Tango en un documento ya asociado aparece dentro de la misma fila, con su detalle y controles de revisión. Se conservan el original financiero, las versiones anteriores y el historial de descartados o vínculos anulados. La consulta al proveedor no sobrescribe un reparto que el usuario esté editando. Sin Access se siguen mostrando los comprobantes y consultas guardadas.
+
+La vista de lectura GET /acopios/{id}/documentacion/panel no transforma tablas ni migra información. Las regresiones de agrupación, origen, importes, versiones e independencia de Access están en backend/tests/test_documentacion_panel.py.
+
+
+## Importación directa desde Glassware
+
+En **Nuevo Acopio → Origen Glassware**, pegar el enlace de un presupuesto Aceptado.
+El conector consulta cabecera e ítems con GET en la sesión abierta de Chrome; no
+lee ni exporta cookies o contraseñas y no registra operaciones en Glassware.
+
+### Activación en el equipo
+
+1. Aplicar la migración: `docker compose exec backend alembic upgrade head`.
+2. En el perfil de Chrome donde está Glassware, abrir `chrome://extensions`,
+   habilitar Modo de desarrollador y cargar descomprimida la carpeta
+   `C:\Users\windows\Desktop\Proyectos\Acopios\extensions\glassware`.
+   También se puede descargar el ZIP desde la ayuda de Origen Glassware.
+3. Recargar Acopios en `http://localhost:5173/acopios/alta` y mantener abierta una
+   pestaña autenticada de Glassware en ese perfil. La versión inicial solo admite
+   Acopios en localhost o 127.0.0.1, puerto 5173.
+4. Consultar, revisar cantidades, medidas, cliente, obra y total; confirmar el alta.
+
+La extensión es específica de Acopios, independiente de la extensión de ChatGPT.
+Solo declara acceso a Glassware y un puente en las páginas locales de Acopios.
+No requiere CDP, un proceso Windows, puertos adicionales ni claves compartidas.
+
+La vista previa se valida y guarda en `glassware_imports`. Solo se confirma por su
+identificador, vence a las dos horas y la confirmación repetida es idempotente.
+En PostgreSQL se serializan confirmaciones del mismo presupuesto y se rechazan
+duplicados, incluso contra acopios de PDF/SPF con ceros iniciales diferentes.
+
+Se incluyen todos los ítems del presupuesto Aceptado; no se descartan alternativas
+por palabras en la descripción. Se validan lista completa, cantidades, dimensiones
+y totales. Un cambio durante la lectura o un dato faltante impide importar.
+El ajuste comercial se distribuye proporcionalmente en los ítems con conciliación
+exacta a centavos. No se recalcula el total desde el porcentaje redondeado visible.
+Se conservan los importes y medidas fuente y los componentes con sus descuentos en
+la instantánea de auditoría, sin guardar HTML ni credenciales. Los precios de paños
+no disponibles quedan sin valor; no se inventan. La fecha de aprobación tampoco se
+deduce de la fecha de creación.
+
+Pruebas: `docker compose exec backend pytest -q tests/test_glassware.py`.
+Para las pruebas aisladas de la extensión, instalar las dependencias de desarrollo
+en `extensions/glassware` y ejecutar `npm test` allí. No se usan en producción.
+
+
+Un estado Parcial no implica que el acuerdo sea parcial: Glassware puede mostrarlo
+para un presupuesto aprobado por el total. El conector permite consultar ese estado,
+conserva todas las cantidades originales y exige una verificación explícita de
+aprobación antes del alta. No crea ni deduce consumos a partir del estado; quedan
+registrados el estado fuente y la verificación. Enviado, Borrador y los demás estados
+siguen rechazados. La ruta GET de vista previa permite reabrir una consulta pendiente.
+
+
+### Validaciones finales del conector Glassware
+
+La extracción exige todos los ítems, sus materiales y precios, y verifica que la
+cantidad de complementos coincida con Glassware. Se rechazan medidas, cantidades
+o importes fuera del rango de almacenamiento y respuestas incompletas. Un importe
+total diferente de la suma de ítems debe estar explicado por un ajuste general;
+la tolerancia del porcentaje solo contempla los dos decimales visibles del origen.
+El reparto usa restos mayores para conservar los centavos sin valores negativos.
+
+La confirmación guarda cabecera, ítems, paños, complementos y auditoría en una sola
+transacción. Una misma vista previa es idempotente y dos vistas del mismo presupuesto
+no pueden crear dos acopios simultáneamente desde el conector. Si se elimina el
+acopio con el flujo existente, queda la auditoría con fecha de confirmación; su
+identificador de vista previa no puede volver a utilizarse para crear otro.
+
+Pruebas PostgreSQL con bases temporales, creadas y eliminadas automáticamente:
+`docker compose exec -e GLASSWARE_POSTGRES_TESTS=1 backend pytest -q tests/test_glassware_postgres.py`.
+Incluyen migraciones desde cero, confirmaciones concurrentes, saldos iniciales,
+relaciones guardadas y borrado con conservación de auditoría. No usan la base real.
+
+### Inicio del conector Tango en Windows
+
+El conector se ejecuta fuera de Docker y debe iniciarse en cada sesion de Windows.
+Para habilitar el inicio automatico del usuario actual, ejecutar:
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/Install-TangoAccessStartup.ps1`.
+El acceso directo inicia solamente el conector, de forma oculta; no abre Access ni
+Docker. Si Access se abre despues, el conector lo detecta automaticamente.
+Para desactivarlo, ejecutar el mismo instalador con `-Remove`.
+Los iniciadores usan Windows PowerShell y el puente admite tambien PowerShell 7,
+sin depender de que `pwsh` este instalado en el PATH del usuario.
+
+### Busqueda Tango con titular fiscal diferente del cliente de obra
+
+Una factura manual o importada, asociada y activa en un acopio, aporta su identidad
+completa (empresa, letra, punto de venta y numero) a las siguientes consultas de ese
+acopio. Se recuperan sus recibos y notas aplicadas desde Tango incluso cuando el
+cliente de la obra es un profesional y el titular fiscal es otra razon social.
+No se generaliza esa identidad a otras obras ni se crean cobros automaticamente.
+Anular la asociacion retira esa evidencia de las consultas siguientes.
+
+Para la primera consulta, si no coincide nombre/CUIT, se proponen candidatos solo
+cuando coinciden el neto exacto y palabras significativas de la obra con la razon
+social fiscal. La diferencia de titular se informa para revision. La busqueda por
+numero tambien recupera las aplicaciones; la factura manual existente no se duplica
+y los recibos pueden referenciarla sin fabricar un vinculo externo de origen.
+
+Regresiones: `docker compose exec -T backend pytest -q tests/test_tango_access.py` y
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/tests/Test-TangoDiscovery.ps1`.
+
+## Registro de cambios
+
+La entrega del 23/10/2026, sus migraciones y validaciones se detallan en [CHANGELOG.md](CHANGELOG.md).
